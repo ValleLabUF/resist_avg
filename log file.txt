@@ -1,0 +1,82 @@
+Why do we see no variability after some iterations for some betas?
+
+The problem lies with the occupied groups, rather than the unoccupied groups. Because we only adapt after 100, the model might be stuck with a parameter that doesn't move because it is stuck using a bad jump parameter for a long time.
+
+Another problem is that the algorithm is actively eliminating groups during these initial iterations where parameters are stuck at bad values.
+
+Proposed solutions:
+- start with jump1=0.1 instead of jump1=1
+- update more frequently: after every 50 instead of every 100
+
+There was a huge bug in how I proposed new values (i.e., betas.prop)!
+#------------------------------------
+June 3rd
+
+I probably need an individual b.gamma for each group. Otherwise, the global b.gamma will be severely impacted by the empty groups and that is not a good thing.
+
+Before, even if we knew the cluster membership, we would still run into problems estimating b.gamma
+
+Now, with one b.gamma per group, we are able to estimate b.gamma well when cluster membership is known.
+
+Let's see what happens when cluster membership is not known in advance.
+
+It might work but we might still have a lot of autocorrelation, in which case we will need to use a slice sampler
+
+Current problem: we identified only 3 behaviors when there were 4!
+
+This does not go away when we limit the maximum number of groups to 4 because we now just identify 2 groups!
+#--------------------------------------------------
+Don't use TSBP. Don't estimate theta. 
+
+I probably changed how I had generated the fake data but forgot to save the new data on disk. This was ruining everything
+
+Current problem: we identified only 2 behaviors when there were 4 (max. groups=10)!
+
+What if we assume just 4 behaviors to begin with and don't estimate theta? Still does not work (the model gets confused between groups 1 and 4)
+
+Change intercepts in fake data and change initial values for b.gamma (to have higher variances): it worked!
+
+Assume we have 10 behaviors. Does it still work? Nope. 
+#--------------------------------
+change the number of observations per group. Aside from changing betas, this should help better discriminate groups.
+
+Things work well when we have z.true but I can see very slow convergence for betas. it seems that all parts of the algorithm move well across parameter space except for sample_betas. 
+
+Implement slice sampler for betas
+#------------------
+June 8th
+
+When z's are unknown, things don't work
+a) is this because the function sample.z is bad? Doesn't seem so. When we fix b.gamma and betas, we are able to correctly estimate z's.
+
+Current code works assuming that z's are known. 
+1) Does it really work to jointly estimate betas and b.gammas? Check correlation between betas and b.gammmas (assuming z's are known). No correlation. 
+
+If I fix z and b.gammas, would I be able to estimate betas? Yes.
+If I fix z and betas, would I be able to estimate b.gamma? Yes.
+
+Ideas
+1) Should I start with b.gamma=1 (little variance) to better estimate betas. Doesn't work
+#---------------------------
+Big idea: revert back to a single b.gamma for all groups now that we are not estimating the number of groups anymore
+#---------------------------
+June 9th
+
+If we know z and we know b.gamma, then we can estimate betas well
+If we know z, then can we estimate b.gamma and betas well?
+
+Why do I see big dips in llk?
+Could it be that the function for b.gamma somehow is modifying betas?
+Could it be that the function for betas somehow is modifying b.gamma?
+#-------------------------------------------
+Something is wrong with my slice sampler for betas.
+
+Perhaps I should simplify my calculation of loglikel. This would make the algorithm slower but simpler.
+
+If this works, I can work on speeding up the function llk_betas()
+
+I can't make the slice sampler for betas work.
+#----------------------------------------------
+resistance model: implement joint sampling of betas using a multivariate normal distribution? implement HMC or MALAS?
+
+Joint sampling does not work. Not sure why.

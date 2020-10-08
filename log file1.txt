@@ -1,0 +1,7 @@
+The problem arises from several things:
+1) the magnitude of ysoma was large but the priors on var.betas imposed relatively small betas
+2) my slice sampler had conditions associated with diff1=rango[2]-rango[1]. If diff1 was too small (likely to occur if likelihood is very peaked) or if MaxIter had been exceeded, then the algorithm would output the wrong outcome and that would wreak havok. I have fixed this problem in the following way:
+- changed the slice sampler functions to output the input parameters (betas or b.gamma) if we run into any of these problems.
+- decreased w to 0.1 (if likelihood is very peaked, we need a very small window)
+
+

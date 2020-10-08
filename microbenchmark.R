@@ -1,0 +1,14 @@
+library('microbenchmark')
+microbenchmark(
+  betas=sample.betas(betas=betas,xmat=xmat,ysoma=ysoma,jump=jump1$betas,
+                   b.gamma=b.gamma,nparam=nparam,var.betas=var.betas,
+                   seg.id=seg.id,ngroup=ngroup,nagg=nagg,z=z),
+  b.gamma=sample.b.gamma(betas=betas,xmat=xmat,ysoma=ysoma,jump=jump1$b.gamma,
+                     b.gamma=b.gamma,seg.id=seg.id,ngroup=ngroup,nagg=nagg,z=z),
+  z=sample.z(betas=betas,xmat=xmat,ysoma=ysoma,b.gamma=b.gamma,
+             seg.id=seg.id,ngroup=ngroup,nagg=nagg,theta=theta),
+  theta=sample.theta(z=z,gamma1=gamma1,ngroup=ngroup),
+  llk=get.llk(betas=betas,xmat=xmat,ysoma=ysoma,b.gamma=b.gamma,
+            seg.id=seg.id,ngroup=ngroup,nagg=nagg),
+  times=10
+)
