@@ -14,10 +14,16 @@ gibbs_resist=function(y,xmat,ngibbs,nburn,var.betas,w,MaxIter,npix){
   store.betas=matrix(NA,ngibbs,nparam)
   store.b=matrix(NA,ngibbs,1)
   store.llk=matrix(NA,ngibbs,1)
+  
+  
+  #progress bar
+  pb<- progress::progress_bar$new(
+    format = " iteration (:current/:total) [:bar] :percent [Elapsed: :elapsed, Remaining: :eta]",
+    total = ngibbs, clear = FALSE, width = 100)
 
+  
   for (i in 1:ngibbs){
-    print(i)
-    # print(sum(abs(betas)))
+    pb$tick()  #create progress bar
     
     #sample betas
     betas=Sample_betas(nparam=nparam,xmat=xmat,y=y,betas=betas,
