@@ -1,4 +1,4 @@
-### Visualize Results from Best Models ###
+### Visualize Model Results ###
 
 library(ggridges)
 library(raster)
@@ -119,7 +119,6 @@ scaled_rain_N<- path.N$rain %>%
   summarise(min=min(V1, na.rm = T), mean=mean(V1, na.rm = T), max=max(V1, na.rm = T))
 
 
-## Foraging ##
 
 ##Perform raster math using beta coeffs
 
@@ -140,6 +139,10 @@ resistSurfN_minTemp<- resistSurfN_minTemp * 60  #convert from min to sec
 resistSurfN_minTemp.df<- as.data.frame(resistSurfN_minTemp, xy=T) %>% 
   mutate(temp.level = "Min")
 
+#replace values for water class with NA
+resistSurfN_minTemp.df[which(values(lulcN) == 4), 3]<- NA
+
+
 
 #Avg recorded temperature
 N.mat<- cbind(lulcN.mat, t.ar = scaled_t.ar_N$mean, rain = scaled_rain_N$mean)
@@ -150,6 +153,11 @@ resistSurfN_avgTemp<- resistSurfN_avgTemp * 60  #convert from min to sec
 resistSurfN_avgTemp.df<- as.data.frame(resistSurfN_avgTemp, xy=T) %>% 
   mutate(temp.level = "Avg")
 
+#replace values for water class with NA
+resistSurfN_avgTemp.df[which(values(lulcN) == 4), 3]<- NA
+
+
+
 #Max recorded temperature
 N.mat<- cbind(lulcN.mat, t.ar = scaled_t.ar_N$max, rain = scaled_rain_N$mean)
 
@@ -158,6 +166,10 @@ raster::values(resistSurfN_maxTemp)<- exp(N.mat %*% betas_N)
 resistSurfN_maxTemp<- resistSurfN_maxTemp * 60  #convert from min to sec
 resistSurfN_maxTemp.df<- as.data.frame(resistSurfN_maxTemp, xy=T) %>% 
   mutate(temp.level = "Max")
+
+#replace values for water class with NA
+resistSurfN_maxTemp.df[which(values(lulcN) == 4), 3]<- NA
+
 
 
 #Combine all results together for each level of temperature

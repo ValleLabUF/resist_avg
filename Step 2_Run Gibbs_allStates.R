@@ -35,6 +35,13 @@ path.S<- path.S[path.S$dt >= 3 & path.S$dt <= 7 & !is.na(path.S$dt),]
 #   filter(state == "Transit")
 
 
+# Remove Burrow behavior observations
+path.N<- path.N %>% 
+  filter(state != 'Burrow')
+path.S<- path.S %>% 
+  filter(state != 'Burrow')
+
+
 
 # Center and Scale covariates 
 path.N<- path.N %>% 
@@ -80,7 +87,7 @@ var.betas=rep(10,ncol(xmat))
 set.seed(2)
 mod_N<- gibbs_resist(y=y,xmat=xmat,ngibbs=ngibbs,nburn=nburn,var.betas=var.betas,
                      w=w,MaxIter=MaxIter,npix=npix)
-# takes 40 min to run (for 1000 iter)
+# takes 11 min to run (for 1000 iter)
 
 
 
@@ -119,7 +126,7 @@ var.betas=rep(10,ncol(xmat))
 set.seed(2)
 mod_S<- gibbs_resist(y=y,xmat=xmat,ngibbs=ngibbs,nburn=nburn,var.betas=var.betas,
                             w=w,MaxIter=MaxIter,npix=npix)
-# takes 10 min to run (for 1000 iter)
+# takes 5 min to run (for 1000 iter)
 
 
 
