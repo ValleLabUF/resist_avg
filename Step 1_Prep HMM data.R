@@ -66,34 +66,101 @@ lulcS<- classes_ST.tif
 
 
 
+#create custom function to downsample raster for factor
+w_agg <- function(x, na.rm=TRUE, ...) {
+  i <- is.na(x)
+  if ((!na.rm) | all(i)) {
+    return(NA)
+  }
+  x <- x[!i]
+  y <- rep(x, weight[x])
+  # to get the same results as with your function you need
+  # sort, such that the ties are treated the same way
+  # y <- sort(y)
+  modal(y)
+}
+
+res(lulcN) #1m 1m
+weight<- c(1, 3, 10, 3, 3, 3)  # modify weighting so that Pasto doesn't dominate aggregation
+# emphasize classification of roads by weighting highest
+lulcN_30m<- raster::aggregate(lulcN,
+                              fact = 30,
+                              fun = w_agg)
+plot(lulcN_30m); points(dat.N$x, dat.N$y)
+
+
+res(lulcS) #1m 1m
+weight<- c(1, 1, 1, 3, 1, 1, 5)  # modify weighting so that Campo, Mata, and Pasto don't dominate
+lulcS_30m<- raster::aggregate(lulcS,
+                              fact = 30,
+                              fun = w_agg)
+plot(lulcS_30m); points(dat.S$x, dat.S$y)
+
+
+
 # Create dummy rasters for extent of each region (with buffer) to crop down rasters
 
 #North
-rast.N<- raster(ext=extent(c(min(dat.N$x) - 10, max(dat.N$x) + 10, min(dat.N$y) - 10,
-                             max(dat.N$y + 10))),
+rast.N<- raster(ext=extent(c(min(dat.N$x) - 30, max(dat.N$x) + 30, min(dat.N$y) - 30,
+                             max(dat.N$y + 30))),
                 crs = "+init=epsg:32721",
-                res = 1)
+                res = 30)
 values(rast.N)<- 0
 
-lulcN<- crop(lulcN, rast.N)
-lulcN<- as.factor(lulcN)
-plot(lulcN); points(dat.N$x, dat.N$y)
+lulcN_30m<- crop(lulcN_30m, rast.N)
+lulcN_30m<- as.factor(lulcN_30m)
+plot(lulcN_30m); points(dat.N$x, dat.N$y)
 
 #South
-rast.S<- raster(ext=extent(c(min(dat.S$x) - 10, max(dat.S$x) + 10, min(dat.S$y) - 10,
-                             max(dat.S$y + 10))),
+rast.S<- raster(ext=extent(c(min(dat.S$x) - 30, max(dat.S$x) + 30, min(dat.S$y) - 30,
+                             max(dat.S$y + 30))),
                 crs = "+init=epsg:32721",
-                res = 1)
+                res = 30)
 values(rast.S)<- 0
 
-lulcS<- crop(lulcS, rast.S)
-lulcS<- as.factor(lulcS)
-plot(lulcS); points(dat.S$x, dat.S$y)
+lulcS_30m<- crop(lulcS_30m, rast.S)
+lulcS_30m<- as.factor(lulcS_30m)
+plot(lulcS_30m); points(dat.S$x, dat.S$y)
 
 
 
-names(lulcN)<- "lulc"
-names(lulcS)<- "lulc"
+##########################
+### Import NDVI layers ###
+##########################
+
+setwd("~/Documents/Snail Kite Project/Data/armadillos/NDVI")
+
+#load files
+ndvi.filenames<- list.files(getwd(), pattern = "*.grd$")
+ndvi.N<- brick(ndvi.filenames[1])
+ndvi.S<- brick(ndvi.filenames[2])
+
+#change extent and dimensions of RasterBricks using resample()
+ndvi.N<- resample(ndvi.N, lulcN_30m, method = "bilinear")
+compareRaster(lulcN_30m, ndvi.N)
+plot(ndvi.N[[1]]); points(dat.N$x, dat.N$y)
+
+#change extent and dimensions of RasterBricks using resample()
+ndvi.S<- resample(ndvi.S, lulcS_30m, method = "bilinear")
+compareRaster(lulcS_30m, ndvi.S)
+plot(ndvi.S[[1]]); points(dat.S$x, dat.S$y)
+
+
+### *TEMPORARY* take mean NDVI for all rasters over study period at each site
+ndvi.N.mean<- mean(ndvi.N, na.rm = T)
+ndvi.S.mean<- mean(ndvi.S, na.rm = T)
+
+
+
+###########################################
+### Merge static covars as RasterBricks ###
+###########################################
+
+covars.N<- stack(lulcN_30m, ndvi.N.mean)
+names(covars.N)<- c("lulc", "ndvi")
+
+covars.S<- stack(lulcS_30m, ndvi.S.mean)
+names(covars.S)<- c("lulc", "ndvi")
 
 
 
@@ -101,11 +168,11 @@ names(lulcS)<- "lulc"
 ### Extract values from raster layer for each track ###
 #######################################################
 plan(multisession)
-path.N<- extract.covars(data = dat.N, layers = lulcN, state.col = "state", which_cat = "lulc")
+path.N<- extract.covars(data = dat.N, layers = covars.N, state.col = "state", which_cat = "lulc")
 #takes 14 min to run
 
-path.S<- extract.covars(data = dat.S, layers = lulcS, state.col = "state", which_cat = "lulc")
-#take 6 min to run
+path.S<- extract.covars(data = dat.S, layers = covars.S, state.col = "state", which_cat = "lulc")
+#take 2.5 min to run
 
 future:::ClusterRegistry("stop")  #close all threads and memory used
 
@@ -139,8 +206,8 @@ path.S<- left_join(path.S, temp[,c("date.round","t.ar","rain")], by = "date.roun
 ### Explore relationships among variables ###
 #############################################
 
-PerformanceAnalytics::chart.Correlation(path.N[,c(3,9:10)])  #no strong corrs
-PerformanceAnalytics::chart.Correlation(path.S[,c(3,9:10)])  #no strong corrs
+PerformanceAnalytics::chart.Correlation(path.N[,c(2,14:15)])  #no strong corrs
+PerformanceAnalytics::chart.Correlation(path.S[,c(2,13:14)])  #no strong corrs
 
 
 ###################
@@ -159,10 +226,10 @@ setwd("~/Documents/Snail Kite Project/Data/R Scripts/ValleLabUF/resist_avg")
 
 # Environmental Layers
 #North
-# writeRaster(slope.N, filename='slope_N.tif', format="GTiff", overwrite=TRUE)
-# writeRaster(lulcN, filename='lulc_N.tif', format="GTiff", overwrite=TRUE)
+# writeRaster(ndvi.N.mean, filename='ndvi_N.tif', format="GTiff", overwrite=TRUE)
+# writeRaster(lulcN_30m, filename='lulc_N.tif', format="GTiff", overwrite=TRUE)
 
 # 
 # #South
-# writeRaster(slope.S, filename='slope_S.tif', format="GTiff", overwrite=TRUE)
-# writeRaster(lulcS, filename='lulc_S.tif', format="GTiff", overwrite=TRUE)
+# writeRaster(ndvi.S.mean, filename='ndvi_S.tif', format="GTiff", overwrite=TRUE)
+# writeRaster(lulcS_30m, filename='lulc_S.tif', format="GTiff", overwrite=TRUE)

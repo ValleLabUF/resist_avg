@@ -28,10 +28,10 @@ dat.S<- dat %>% filter(region == "S")
 
 
 # N and S IDs separated
-path.N<- read.csv('N Armadillo Resistance Data_LULC.csv', as.is=T)
-path.S<- read.csv('S Armadillo Resistance Data_LULC.csv', as.is=T)
-names(path.N)[2:7]<- c("Pasture", "HQ", "Fence", "Water", "Cane", "Forest")
-names(path.S)[2:6]<- c("Field", "Forest", "Water", "Pasture", "Road")
+path.N<- read.csv('N Armadillo Resistance Data.csv', as.is=T)
+path.S<- read.csv('S Armadillo Resistance Data.csv', as.is=T)
+names(path.N)[3:8]<- c("Pasture", "HQ", "Fence", "Water", "Cane", "Forest")
+names(path.S)[3:7]<- c("Field", "Forest", "Water", "Pasture", "Road")
 
 path.N$dt<- path.N$dt/60  #convert to min from sec
 path.S$dt<- path.S$dt/60
@@ -48,12 +48,12 @@ path.S<- path.S %>%
 
 # Center and Scale covariates 
 path.N<- path.N %>% 
-  mutate_at(c("t.ar","rain"),
+  mutate_at(c("ndvi","t.ar","rain"),
             ~scale(., center = TRUE, scale = TRUE)) %>% 
   drop_na(t.ar)
 
 path.S<- path.S %>% 
-  mutate_at(c("t.ar","rain"),
+  mutate_at(c("ndvi","t.ar","rain"),
             ~scale(., center = TRUE, scale = TRUE)) %>% 
   drop_na(t.ar)
 
@@ -80,16 +80,17 @@ betas_N<- dat.N.summ$mean
 
 #Load env raster data
 lulcN<- raster('lulc_N.tif')
-lulcN<- as.factor(lulcN)
-
+# lulcN<- as.factor(lulcN)
+ndviN<- raster('ndvi_N.tif')
+ndviN<- scale(ndviN, center = T, scale = T)
 
 scaled_t.ar_N<- path.N$t.ar %>% 
-  scale(center = T, scale = T) %>% 
+  # scale(center = T, scale = T) %>% 
   as.data.frame() %>% 
   summarise(min=min(V1, na.rm = T), mean=mean(V1, na.rm = T), max=max(V1, na.rm = T))
 
 scaled_rain_N<- path.N$rain %>% 
-  scale(center = T, scale = T) %>% 
+  # scale(center = T, scale = T) %>% 
   as.data.frame() %>% 
   summarise(min=min(V1, na.rm = T), mean=mean(V1, na.rm = T), max=max(V1, na.rm = T))
 
@@ -98,11 +99,11 @@ scaled_rain_N<- path.N$rain %>%
 ##Perform raster math using beta coeffs
 
 #Make predictions using posterior mean of betas
-ind<- c("Pasture", "HQ", "Fence", "Water", "Cane", "Forest", "t.ar", "rain")
+ind<- c("ndvi","Pasture", "HQ", "Fence", "Water", "Cane", "Forest", "t.ar", "rain")
 xmat<- data.matrix(path.N[,ind])
 
-lulcN.mat<- model.matrix(~factor(getValues(lulcN)) + 0)
-colnames(lulcN.mat)<- ind[1:6]
+lulcN.mat<- model.matrix(~factor(getValues(covars.N$lulc_N)) + 0)
+colnames(lulcN.mat)<- ind[2:7]
 
 
 # #Min recorded temperature
@@ -154,14 +155,15 @@ colnames(lulcN.mat)<- ind[1:6]
 resist.N<- list()
 
 # Using avg temperature and rainfall estimates
-N.mat<- cbind(lulcN.mat, t.ar = scaled_t.ar_N$mean, rain = scaled_rain_N$mean)
+N.mat<- cbind(ndvi = values(ndviN), lulcN.mat, t.ar = scaled_t.ar_N$mean,
+              rain = scaled_rain_N$mean)
 
 for (i in 2:11) {
   print(i)
   
   resistSurfN<- lulcN
-  raster::values(resistSurfN)<- exp(N.mat %*% betas_N[12:19] + betas_N[i])
-  resistSurfN<- resistSurfN * 60  #convert from min to sec
+  raster::values(resistSurfN)<- exp(N.mat %*% betas_N[12:20] + betas_N[i])
+  # resistSurfN<- resistSurfN * 60  #convert from min to sec
   
   #replace values for water class with NA
   values(resistSurfN)[which(values(lulcN) == 4)]<- NA
@@ -281,29 +283,33 @@ betas_S<- dat.S.summ$mean
 
 #Load env raster data
 lulcS<- raster('lulc_S.tif')
-lulcS<- as.factor(lulcS)
-
+# lulcS<- as.factor(lulcS)
+ndviS<- raster('ndvi_S.tif')
+ndviS<- scale(ndviS, center = T, scale = T)
 
 
 scaled_t.ar_S<- path.S$t.ar %>% 
-  scale(center = T, scale = T) %>% 
+  # scale(center = T, scale = T) %>% 
   as.data.frame() %>% 
   summarise(min=min(V1, na.rm = T), mean=mean(V1, na.rm = T), max=max(V1, na.rm = T))
 
 scaled_rain_S<- path.S$rain %>% 
-  scale(center = T, scale = T) %>% 
+  # scale(center = T, scale = T) %>% 
   as.data.frame() %>% 
   summarise(min=min(V1, na.rm = T), mean=mean(V1, na.rm = T), max=max(V1, na.rm = T))
+
+
+
 
 
 ##Perform raster math using beta coeffs
 
 #Make predictions using posterior mean of betas
-ind<- c("Field", "Forest", "Water", "Pasture", "Road", "t.ar", "rain")
+ind<- c("ndvi","Field", "Forest", "Water", "Pasture", "Road", "t.ar", "rain")
 xmat<- data.matrix(path.S[,ind])
 
 lulcS.mat<- model.matrix(~factor(getValues(lulcS)) + 0)
-colnames(lulcS.mat)<- ind[1:5]
+colnames(lulcS.mat)<- ind[2:6]
 
 
 # #Min recorded temperature
@@ -354,14 +360,15 @@ colnames(lulcS.mat)<- ind[1:5]
 resist.S<- list()
 
 # Using avg temperature and rainfall estimates
-S.mat<- cbind(lulcS.mat, t.ar = scaled_t.ar_S$mean, rain = scaled_rain_S$mean)
+S.mat<- cbind(ndvi = values(ndviS), lulcS.mat, t.ar = scaled_t.ar_S$mean,
+              rain = scaled_rain_S$mean)
 
 for (i in 2:11) {
   print(i)
   
   resistSurfS<- lulcS
-  raster::values(resistSurfS)<- exp(S.mat %*% betas_S[12:18] + betas_S[i])
-  resistSurfS<- resistSurfS * 60  #convert from min to sec
+  raster::values(resistSurfS)<- exp(S.mat %*% betas_S[12:19] + betas_S[i])
+  # resistSurfS<- resistSurfS * 60  #convert from min to sec
   
   #replace values for water class with NA
   values(resistSurfS)[which(values(lulcS) == 4)]<- NA
@@ -386,12 +393,11 @@ names(resist.S)<- names(sort(table(path.S$id), decreasing = TRUE))
 resist.S.df<- bind_rows(resist.S, .id = "id")
 names(resist.S.df)[3]<- "time"
 
-tmp1<- resist.S.df %>% filter(id %in% unique(resist.S.df$id)[1:5])
 
-S.plot1<- ggplot() +
-  geom_raster(data = tmp1,
+ggplot() +
+  geom_raster(data = resist.S.df,
               aes(x, y, fill = time)) +
-  geom_path(data = dat.S %>% filter(id %in% unique(resist.S.df$id)[1:5]),
+  geom_path(data = dat.S,
             aes(x, y, group = id), alpha = 0.5, color = "chartreuse") +
   scale_fill_viridis_c("Time Spent\nper Cell (sec)", option = "inferno",
                        na.value = "transparent") +
@@ -409,38 +415,6 @@ S.plot1<- ggplot() +
         legend.text = element_text(size = 12)) +
   guides(fill = guide_colourbar(barwidth = 30, barheight = 1)) +
   facet_wrap(~ id)
-
-ggsave("S Pantanal ID-level Resistance Surfaces1.png", plot = S.plot1, width = 9, height = 9,
-       units = "in", dpi = 300)
-
-
-
-tmp2<- resist.S.df %>% filter(id %in% unique(resist.S.df$id)[6:10])
-
-S.plot2<- ggplot() +
-  geom_raster(data = tmp2,
-              aes(x, y, fill = time)) +
-  geom_path(data = dat.S %>% filter(id %in% unique(resist.S.df$id)[6:10]),
-            aes(x, y, group = id), alpha = 0.5, color = "chartreuse") +
-  scale_fill_viridis_c("Time Spent\nper Cell (sec)", option = "inferno",
-                       na.value = "transparent") +
-  scale_x_continuous(expand = c(0,0)) +
-  scale_y_continuous(expand = c(0,0)) +
-  labs(x="Easting", y="Northing", title = "South Pantanal Resistance Surface") +
-  theme_bw() +
-  coord_equal() +
-  theme(legend.position = "bottom",
-        axis.title = element_text(size = 18),
-        axis.text = element_text(size = 10),
-        strip.text = element_text(size = 16, face = "bold"),
-        plot.title = element_text(size = 22),
-        legend.title = element_text(size = 14),
-        legend.text = element_text(size = 12)) +
-  guides(fill = guide_colourbar(barwidth = 30, barheight = 1)) +
-  facet_wrap(~ id)
-
-ggsave("S Pantanal ID-level Resistance Surfaces2.png", plot = S.plot2, width = 9, height = 9,
-       units = "in", dpi = 300)
 
 
 

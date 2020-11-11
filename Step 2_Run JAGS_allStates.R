@@ -8,8 +8,8 @@ library(tidyr)
 
 
 # N and S IDs separated
-path.N<- read.csv('N Armadillo Resistance Data_LULC.csv', as.is=T)
-path.S<- read.csv('S Armadillo Resistance Data_LULC.csv', as.is=T)
+path.N<- read.csv('N Armadillo Resistance Data.csv', as.is=T)
+path.S<- read.csv('S Armadillo Resistance Data.csv', as.is=T)
 
 path.N$dt<- path.N$dt/60  #convert to min from sec
 path.S$dt<- path.S$dt/60
@@ -31,12 +31,12 @@ path.S<- path.S %>%
 
 # Center and Scale covariates 
 path.N<- path.N %>% 
-  mutate_at(c("t.ar","rain"),
+  mutate_at(c("ndvi","t.ar","rain"),
             ~scale(., center = TRUE, scale = TRUE)) %>% 
   drop_na(t.ar)
 
 path.S<- path.S %>% 
-  mutate_at(c("t.ar","rain"),
+  mutate_at(c("ndvi","t.ar","rain"),
             ~scale(., center = TRUE, scale = TRUE)) %>% 
   drop_na(t.ar)
 
@@ -85,8 +85,8 @@ n.id<- max(id)
 nobs<- nrow(path.N)
 dt<- path.N$dt
 n<- path.N$n
-names(path.N)[2:7]<- c("Pasture", "HQ", "Fence", "Water", "Cane", "Forest")
-ind<- c("Pasture", "HQ", "Fence", "Water", "Cane", "Forest", "t.ar", "rain")
+names(path.N)[3:8]<- c("Pasture", "HQ", "Fence", "Water", "Cane", "Forest")
+ind<- c("ndvi","Pasture", "HQ", "Fence", "Water", "Cane", "Forest", "t.ar", "rain")
 xmat<- data.matrix(path.N[,ind])
 dat1<- list(nobs=nobs, dt=dt, n=n, xmat=xmat, nparam=ncol(xmat), id=id, n.id=n.id)
 
@@ -96,7 +96,7 @@ params=c('betas','b','b0')
 
 
 #MCMC settings 
-n.iter <- 2000
+n.iter <- 1000
 n.thin <- 5  
 n.burnin <- n.iter/2
 n.chains <- 3
@@ -110,7 +110,7 @@ res.N = jags(model.file = model, parameters.to.save = params, data = dat1,
            n.chains = n.chains, n.burnin = n.burnin, n.iter = n.iter,
            n.thin = n.thin, DIC = TRUE)
 toc()
-# takes 36 min to run 2000 iterations
+# takes 19 min to run 1000 iterations
 
 
 res.N
@@ -139,8 +139,8 @@ n.id<- max(id)
 nobs<- nrow(path.S)
 dt<- path.S$dt
 n<- path.S$n
-names(path.S)[2:6]<- c("Field", "Forest", "Water", "Pasture", "Road")
-ind<- c("Field", "Forest", "Water", "Pasture", "Road", "t.ar", "rain")
+names(path.S)[3:7]<- c("Field", "Forest", "Water", "Pasture", "Road")
+ind<- c("ndvi","Field", "Forest", "Water", "Pasture", "Road", "t.ar", "rain")
 xmat<- data.matrix(path.S[,ind])
 dat1<- list(nobs=nobs, dt=dt, n=n, xmat=xmat, nparam=ncol(xmat), id=id, n.id=n.id)
 
@@ -150,7 +150,7 @@ params=c('betas','b','b0')
 
 
 #MCMC settings 
-n.iter <- 2000
+n.iter <- 1000
 n.thin <- 5  
 n.burnin <- n.iter/2
 n.chains <- 3
@@ -164,7 +164,7 @@ res.S = jags(model.file = model, parameters.to.save = params, data = dat1,
            n.chains = n.chains, n.burnin = n.burnin, n.iter = n.iter,
            n.thin = n.thin, DIC = TRUE)
 toc()
-# takes 19 min to run 2000 iterations
+# takes 13 min to run 1000 iterations
 
 
 res.S
@@ -185,8 +185,6 @@ MCMCplot(res.S, excl = "deviance")
 
 
 
-
-### FIND WAY TO EXPORT AND SAVE RESULTS TO USE IN ANALYSES AND DATA VIZ
 
 # Export results
 res.N.summ<- res.N$BUGSoutput$summary

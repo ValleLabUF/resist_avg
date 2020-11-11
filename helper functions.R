@@ -55,20 +55,21 @@ extract.covars.internal = function(dat, layers, state.col, which_cat) {
     extr.covar<- data.frame()
     
     #Extract values from each line segment
-    for (j in 2:nrow(tmp)) {
+    for (j in 2:nrow(tmp)) { 
       segment<- tmp[(j-1):j, c("x","y")] %>%
         as.matrix() %>% 
         st_linestring() %>% 
         st_sfc(crs = projection(layers)) %>% 
         st_sf()
       
-      tmp1<- raster::extract(layers, segment, along = TRUE, cellnumbers = TRUE) %>% 
-        # purrr::map(., ~matrix(., ncol = nlayers(layers) + 1)) %>% 
+      tmp1<- raster::extract(layers, segment, along = TRUE, cellnumbers = FALSE) %>% 
+        purrr::map(., ~matrix(., ncol = nlayers(layers))) %>%
         purrr::pluck(1) %>% 
-        data.frame()
+        data.frame() %>% 
+        purrr::set_names(names(layers))
       
       
-      #calculate segment means if continuous and find modes if categorical
+      #calculate segment means if continuous and proportions spent in each class if categorical
       if (is.null(which_cat)) {
         covar.means<- data.frame(t(colMeans(tmp1)))
       } else {
@@ -82,8 +83,8 @@ extract.covars.internal = function(dat, layers, state.col, which_cat) {
       
       tmp2<- cbind(n = nrow(tmp1), covar.means) %>% 
         dplyr::mutate(dt = as.numeric(tmp$dt[j-1]), id = unique(dat$id), date = tmp$date[j-1],
-               state = tmp[j-1,state.col]) %>% 
-        dplyr::select(-cell)
+               state = tmp[j-1,state.col]) #%>% 
+        # dplyr::select(-cell)
       
       extr.covar<- rbind(extr.covar, tmp2)
     }
