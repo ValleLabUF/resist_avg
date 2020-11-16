@@ -102,7 +102,7 @@ scaled_rain_N<- path.N$rain %>%
 ind<- c("ndvi","Pasture", "HQ", "Fence", "Water", "Cane", "Forest", "t.ar", "rain")
 xmat<- data.matrix(path.N[,ind])
 
-lulcN.mat<- model.matrix(~factor(getValues(covars.N$lulc_N)) + 0)
+lulcN.mat<- model.matrix(~factor(getValues(lulcN)) + 0)
 colnames(lulcN.mat)<- ind[2:7]
 
 
@@ -192,7 +192,7 @@ names(resist.N.df)[3]<- "time"
 ggplot() +
   geom_raster(data = resist.N.df, aes(x, y, fill = time)) +
   geom_path(data = dat.N, aes(x, y, group = id), alpha = 0.5, color = "chartreuse") +
-  scale_fill_viridis_c("Time Spent\nper Cell (sec)", option = "inferno",
+  scale_fill_viridis_c("Time Spent\nper Cell (min)", option = "inferno",
                        na.value = "transparent") +
   scale_x_continuous(expand = c(0,0)) +
   scale_y_continuous(expand = c(0,0)) +
@@ -433,7 +433,7 @@ resist.mean.S.df<- cbind(resist.S[[1]][,c("x","y")], time = resist.mean.S)
 ggplot() +
   geom_raster(data = resist.mean.S.df, aes(x, y, fill = time)) +
   geom_path(data = dat.S, aes(x, y, group = id), alpha = 0.5, color = "blue") +
-  scale_fill_viridis_c("Time Spent\nper Cell (sec)", option = "inferno",
+  scale_fill_viridis_c("Time Spent\nper Cell (min)", option = "inferno",
                        na.value = "transparent") +
   scale_x_continuous(expand = c(0,0)) +
   scale_y_continuous(expand = c(0,0)) +
