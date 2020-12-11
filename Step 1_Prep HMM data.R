@@ -14,7 +14,7 @@ source('helper functions.R')
 ### Import armadillo data ###
 #############################
 
-#active locs from standard HMM (via momentuHMM)
+#state estimates from standard HMM (via momentuHMM)
 dat<- read.csv("Armadillo HMM Results.csv", header = T, sep = ",")
 
 dat<- dat %>% 

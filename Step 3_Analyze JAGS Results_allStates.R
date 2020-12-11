@@ -209,6 +209,8 @@ ggplot() +
   guides(fill = guide_colourbar(barwidth = 30, barheight = 1)) +
   facet_wrap(~ id)
 
+# ggsave("N Pantanal Time Resistance_facet.png", width = 8.5, height = 8, units = "in", dpi = 300)
+
 
 #calculate mean resistance across IDs
 resist.mean.N<- resist.N.df %>% 
@@ -225,7 +227,7 @@ resist.mean.N.df<- cbind(resist.N[[1]][,c("x","y")], time = resist.mean.N)
 ggplot() +
   geom_raster(data = resist.mean.N.df, aes(x, y, fill = time)) +
   geom_path(data = dat.N, aes(x, y, group = id), alpha = 0.5, color = "blue") +
-  scale_fill_viridis_c("Time Spent\nper Cell (sec)", option = "inferno",
+  scale_fill_viridis_c("Time Spent\nper Cell (min)", option = "inferno",
                        na.value = "transparent") +
   scale_x_continuous(expand = c(0,0)) +
   scale_y_continuous(expand = c(0,0)) +
@@ -240,6 +242,8 @@ ggplot() +
         legend.title = element_text(size = 14),
         legend.text = element_text(size = 12)) +
   guides(fill = guide_colourbar(barwidth = 30, barheight = 1))
+
+# ggsave("N Pantanal Time Resistance_mean.png", width = 8.5, height = 8, units = "in", dpi = 300)
 
 
 ## LU/LC map for reference
@@ -399,7 +403,7 @@ ggplot() +
               aes(x, y, fill = time)) +
   geom_path(data = dat.S,
             aes(x, y, group = id), alpha = 0.5, color = "chartreuse") +
-  scale_fill_viridis_c("Time Spent\nper Cell (sec)", option = "inferno",
+  scale_fill_viridis_c("Time Spent\nper Cell (min)", option = "inferno",
                        na.value = "transparent") +
   scale_x_continuous(expand = c(0,0)) +
   scale_y_continuous(expand = c(0,0)) +
@@ -415,6 +419,8 @@ ggplot() +
         legend.text = element_text(size = 12)) +
   guides(fill = guide_colourbar(barwidth = 30, barheight = 1)) +
   facet_wrap(~ id)
+
+# ggsave("S Pantanal Time Resistance_facet.png", width = 9, height = 5, units = "in", dpi = 300)
 
 
 
@@ -448,6 +454,8 @@ ggplot() +
         legend.title = element_text(size = 14),
         legend.text = element_text(size = 12)) +
   guides(fill = guide_colourbar(barwidth = 30, barheight = 1))
+
+# ggsave("S Pantanal Time Resistance_mean.png", width = 9, height = 5, units = "in", dpi = 300)
 
 
 ## LU/LC map for reference

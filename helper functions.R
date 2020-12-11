@@ -102,7 +102,7 @@ extract.covars = function(data, layers, state.col, which_cat = NULL) {
   path<- furrr::future_map(dat.list,
                            ~extract.covars.internal(dat = .x, layers = layers,
                                                     state.col = "state", which_cat = which_cat),
-                           .progress = TRUE, .options = future_options(seed = TRUE))
+                           .progress = TRUE, .options = furrr_options(seed = TRUE))
   tictoc::toc()
   
   
