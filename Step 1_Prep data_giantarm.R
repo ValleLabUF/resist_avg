@@ -71,8 +71,6 @@ compareRaster(lulc, ndvi.season)
 plot(ndvi.season[[1]]); points(dat$x, dat$y)
 
 
-### *TEMPORARY* take mean NDVI for all rasters over study period at each site
-# ndvi.N.mean<- mean(ndvi.N, na.rm = T)
 
 
 

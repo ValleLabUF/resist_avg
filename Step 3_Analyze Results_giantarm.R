@@ -93,53 +93,13 @@ lulc.mat<- model.matrix.lm(~x + 0, na.action = "na.pass")
 colnames(lulc.mat)<- ind[2:5]
 
 
-# #Min recorded temperature
-# N.mat<- cbind(lulcN.mat, t.ar = scaled_t.ar_N$min, rain = scaled_rain_N$mean)
-# 
-# resistSurfN_minTemp<- lulcN
-# raster::values(resistSurfN_minTemp)<- exp(N.mat %*% betas_N)
-# resistSurfN_minTemp<- resistSurfN_minTemp * 60  #convert from min to sec
-# resistSurfN_minTemp.df<- as.data.frame(resistSurfN_minTemp, xy=T) %>% 
-#   mutate(temp.level = "Min")
-# 
-# #replace values for water class with NA
-# resistSurfN_minTemp.df[which(values(lulcN) == 4), 3]<- NA
-# 
-# 
-# 
-# #Avg recorded temperature
-# N.mat<- cbind(lulcN.mat, t.ar = scaled_t.ar_N$mean, rain = scaled_rain_N$mean)
-# 
-# resistSurfN_avgTemp<- lulcN
-# raster::values(resistSurfN_avgTemp)<- exp(N.mat %*% betas_N)
-# resistSurfN_avgTemp<- resistSurfN_avgTemp * 60  #convert from min to sec
-# resistSurfN_avgTemp.df<- as.data.frame(resistSurfN_avgTemp, xy=T) %>% 
-#   mutate(temp.level = "Avg")
-# 
-# #replace values for water class with NA
-# resistSurfN_avgTemp.df[which(values(lulcN) == 4), 3]<- NA
-# 
-# 
-# 
-# #Max recorded temperature
-# N.mat<- cbind(lulcN.mat, t.ar = scaled_t.ar_N$max, rain = scaled_rain_N$mean)
-# 
-# resistSurfN_maxTemp<- lulcN
-# raster::values(resistSurfN_maxTemp)<- exp(N.mat %*% betas_N)
-# resistSurfN_maxTemp<- resistSurfN_maxTemp * 60  #convert from min to sec
-# resistSurfN_maxTemp.df<- as.data.frame(resistSurfN_maxTemp, xy=T) %>% 
-#   mutate(temp.level = "Max")
-# 
-# #replace values for water class with NA
-# resistSurfN_maxTemp.df[which(values(lulcN) == 4), 3]<- NA
-
-
 
 
 
 ### Calculate Resistance Surface by ID ###
 
 resist.dyn<- list()
+id1<- unique(dat.summ$id)
 
 for (j in 1:nlayers(ndvi)) {
   print(names(ndvi)[j])
@@ -149,11 +109,11 @@ for (j in 1:nlayers(ndvi)) {
   # Using avg temperature and rainfall estimates
   cov.mat<- cbind(ndvi = values(ndvi[[j]]), lulc.mat)
   
-  for (i in 2:8) {
+  for (i in 1:length(id1)) {
     print(i)
     
     resistSurf<- lulc
-    raster::values(resistSurf)<- exp(cov.mat %*% betas[9:13] + betas[i])
+    raster::values(resistSurf)<- exp(cov.mat %*% dat.summ[which(dat.summ$id == id1[i]), "mean"])
     # resistSurf<- resistSurf * 60  #convert from min to sec
     
     #replace values for water class with NA
@@ -164,7 +124,7 @@ for (j in 1:nlayers(ndvi)) {
       mutate(id = i)
     names(resistSurf.df)[3]<- "time"
     
-    tmp[[i-1]]<- resistSurf.df
+    tmp[[i]]<- resistSurf.df
   }
   
   names(tmp)<- names(sort(table(path$id), decreasing = TRUE))
@@ -212,24 +172,27 @@ ggplot() +
 resist.mean.season<- resist.dyn.df %>% 
   bayesmove::df_to_list(., "season") %>% 
   map(., bayesmove::df_to_list, "id") %>% 
-  modify_depth(., 2, map(., ~pluck("time")))
+  map_depth(., 2, pluck, "time")
 
-  map(., . %>% dplyr::select(time)) %>% 
-  bind_cols() %>% 
-  rowMeans()
-resist.mean.season.df<- cbind(resist.N[[1]][,c("x","y")], time = resist.mean.N)
+resist.mean.season2<- resist.mean.season %>% 
+  map(., bind_cols) %>% 
+  map(., rowMeans) %>% 
+  unlist()
+
+resist.mean.season3<- cbind(resist.dyn$Fall$gala[,c("x","y")], time = resist.mean.season2) %>% 
+  mutate(season = rep(c("Fall","Winter","Spring","Summer"), each = ncell(ndvi)), .before = "x")
 
 
 
 ## Mean across IDs
 ggplot() +
-  geom_raster(data = resist.mean.N.df, aes(x, y, fill = time)) +
-  geom_path(data = dat.N, aes(x, y, group = id), alpha = 0.5, color = "blue") +
+  geom_raster(data = resist.mean.season3, aes(x, y, fill = time)) +
+  geom_path(data = dat, aes(x, y, group = id), alpha = 0.5, color = "chartreuse") +
   scale_fill_viridis_c("Time Spent\nper Cell (min)", option = "inferno",
                        na.value = "transparent") +
   scale_x_continuous(expand = c(0,0)) +
   scale_y_continuous(expand = c(0,0)) +
-  labs(x="Easting", y="Northing", title = "North Pantanal Resistance Surface") +
+  labs(x="Easting", y="Northing", title = "Giant Armadillo Resistance Surface") +
   theme_bw() +
   coord_equal() +
   theme(legend.position = "bottom",
@@ -239,7 +202,8 @@ ggplot() +
         plot.title = element_text(size = 22),
         legend.title = element_text(size = 14),
         legend.text = element_text(size = 12)) +
-  guides(fill = guide_colourbar(barwidth = 30, barheight = 1))
+  guides(fill = guide_colourbar(barwidth = 30, barheight = 1)) +
+  facet_wrap(~ season, nrow = 1)
 
 # ggsave("N Pantanal Time Resistance_mean.png", width = 8.5, height = 8, units = "in", dpi = 300)
 
