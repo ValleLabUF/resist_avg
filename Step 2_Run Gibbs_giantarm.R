@@ -30,14 +30,39 @@ path$date<- as_datetime(path$date)
 path<- path[path$dt >= 5 & path$dt <= 9 & !is.na(path$dt),]
 
 
-# Remove state col and rows where is.na(NDVI)
+# Remove state col and rows where is.na(NDWI)
 path<- path %>% 
   dplyr::select(-state) %>% 
-  filter(!is.na(ndvi))
+  filter(!is.na(ndwi))
 
 
 # Center and scale covariates 
-path$ndvi<- as.numeric(scale(path$ndvi, center = TRUE, scale = TRUE))
+path$ndwi<- as.numeric(scale(path$ndwi, center = TRUE, scale = TRUE))
+
+
+# Add cols for season
+# month1<- month.abb[month(path$date)]
+# month1<- factor(month1, levels = month.abb[c(5:12,1)])
+# season1<- ifelse(month1 %in% c(month.abb[3:5]), "Fall",
+#                     ifelse(month1 %in% c(month.abb[6:8]), "Winter",
+#                            ifelse(month1 %in% c(month.abb[9:11]), "Spring", "Summer")))
+# season1<- factor(season1, levels = c("Fall","Winter","Spring","Summer"))
+# table(season1)  #since Winter has largest N, this will be reference
+# 
+# season.mat<- model.matrix(~season1 + 0)
+# season.mat<- season.mat[,-2]
+# colnames(season.mat)<- c("Fall","Spring","Summer")
+# 
+# path2<- cbind(path, season.mat)
+
+
+
+# Add cols for interaction between season and NDVI
+# path3<- path2 %>% 
+#   mutate(Fall.ndvi = ndvi*Fall,
+#          Spring.ndvi = ndvi*Spring,
+#          Summer.ndvi = ndvi*Summer)
+
 
 
 
@@ -47,8 +72,8 @@ path$ndvi<- as.numeric(scale(path$ndvi, center = TRUE, scale = TRUE))
 #################
 
 #prepare data
-# names(path)[3:6]<- c("...", "...", "...", "...")
-ind<- c("ndvi","X1", "X2", "X3", "X4")
+names(path)[4:7]<- c("Forest", "Open_Savanna", "Closed_Savanna", "Floodable")
+ind<- c("ndwi","Forest", "Open_Savanna", "Closed_Savanna", "Floodable")
 # xmat<- data.matrix(path[,ind])
 # npix<- path$n
 # y<- path$dt
@@ -67,8 +92,13 @@ var.betas=rep(10, length(ind))
 #Run model
 set.seed(1234)
 plan(multisession)
-res<- resist(data = path, covs = ind, priors = var.betas, ngibbs = ngibbs)
-# takes 1.5 min to run (for 1000 iter)
+
+progressr::with_progress({
+  res<- resist(data = path, covs = ind, priors = var.betas, ngibbs = ngibbs)
+})
+future:::ClusterRegistry("stop")  #close all threads and memory used
+# takes 7.5 min to run (for 1000 iter)
+# takes 71 min to run (for 2000 iter w season and interactions)
 
 
 
@@ -96,7 +126,9 @@ for (i in 1:length(store.b)) {
 
 #look at convergence of betas
 betas<- t(bind_rows(store.betas))
-betas<- data.frame(id = paste(rep(names(store.betas), each = 5), rep(ind, 5)), betas)
+betas<- data.frame(id = paste(rep(names(store.betas), each = length(var.betas)),
+                              rep(ind, length(unique(path$id)))),
+                   betas)
 bayesmove::traceplot(data = betas, ngibbs = ngibbs, type = "LML")
 betas2<- map(store.betas, data.frame) %>% 
   bind_cols()

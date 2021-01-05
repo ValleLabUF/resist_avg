@@ -1,4 +1,5 @@
 gibbs_resist=function(y,xmat,ngibbs,nburn,var.betas,w,MaxIter,npix){
+  
   n=nrow(xmat)  
   nparam=ncol(xmat)
 
@@ -17,13 +18,13 @@ gibbs_resist=function(y,xmat,ngibbs,nburn,var.betas,w,MaxIter,npix){
   
   
   #progress bar
-  pb<- progress::progress_bar$new(
-    format = " iteration (:current/:total) [:bar] :percent [Elapsed: :elapsed, Remaining: :eta]",
-    total = ngibbs, clear = FALSE, width = 100)
+  # pb<- progress::progress_bar$new(
+  #   format = " iteration (:current/:total) [:bar] :percent [Elapsed: :elapsed, Remaining: :eta]",
+  #   total = ngibbs, clear = FALSE, width = 100)
 
   
   for (i in 1:ngibbs){
-    pb$tick()  #create progress bar
+    # pb$tick()  #create progress bar
     
     #sample betas
     betas=Sample_betas(nparam=nparam,xmat=xmat,y=y,betas=betas,
@@ -58,12 +59,13 @@ resist = function(data, covs, priors, ngibbs) {
   ##       although 'id' can go by any name
   ## covs  A vector of the column names that are storing the relevant covariates
   ## priors  A vector of the priors on the variance of the beta coeffs
+  ## ngibbs integer. The number of iterations of the Gibbs sampler
   
   
   dat.list<- bayesmove::df_to_list(dat = data, ind = "id")
   
   #prepare data
-  xmat<- purrr::map(dat.list, ~data.matrix(.x[,covs]))
+  xmat<- purrr::map(dat.list, ~.x[,c("id",covs)])
   npix<- purrr::map(dat.list, ~purrr::pluck(.x, "n"))
   y<- purrr::map(dat.list, ~purrr::pluck(.x, "dt"))
   
@@ -72,14 +74,18 @@ resist = function(data, covs, priors, ngibbs) {
   MaxIter=1000
   nburn = ngibbs/2
   
+  #set up progress bar
+  p<- progressr::progressor(steps = length(xmat))
   
   #run model
   tictoc::tic()
   dat.res<- furrr::future_pmap(list(y,xmat,npix),
-                               function(a, b, c) gibbs_resist(y=a, xmat=b, ngibbs=ngibbs,
-                                                              nburn=nburn, var.betas=priors, w=w,
-                                                              MaxIter=MaxIter, npix=c),
-                               .options = furrr_options(seed = TRUE), .progress = TRUE)
+    function(a, b, c) {
+      gibbs_resist(y=a, xmat=data.matrix(b[,-1]), ngibbs=ngibbs, nburn=nburn, var.betas=priors,
+                   w=w, MaxIter=MaxIter, npix=c)
+      p()  #for progress bar
+      },
+    .options = furrr_options(seed = TRUE), .progress = FALSE)
   tictoc::toc()
   
   

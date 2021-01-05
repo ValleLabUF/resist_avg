@@ -61,7 +61,8 @@ lulc<- asFactor(lulc)
 
 
 #load files
-ndvi.filenames<- list.files(getwd(), pattern = "*.grd$")
+files<- list.files(getwd(), pattern = "*.grd$")
+ndvi.filenames<- files[grep("ndvi", files)]
 # ndvi.month<- brick(ndvi.filenames[1])
 ndvi.season<- brick(ndvi.filenames[2])
 
@@ -72,13 +73,31 @@ plot(ndvi.season[[1]]); points(dat$x, dat$y)
 
 
 
+##########################
+### Import NDWI layers ###
+##########################
+
+
+#load files
+files<- list.files(getwd(), pattern = "*.grd$")
+ndwi.filenames<- files[grep("ndwi", files)]
+# ndwi.month<- brick(ndwi.filenames[1])
+ndwi.season<- brick(ndwi.filenames[2])
+
+#change extent and dimensions of RasterBricks using resample()
+ndwi.season<- resample(ndwi.season, lulc, method = "bilinear")
+compareRaster(lulc, ndwi.season)
+plot(ndwi.season[[1]]); points(dat$x, dat$y)
+
+
+
 
 
 ###########################################
 ### Merge static covars as RasterBricks ###
 ###########################################
 
-covars<- stack(lulc, ndvi.season)
+covars<- stack(lulc, ndvi.season, ndwi.season)
 names(covars)[1]<- c("lulc")
 
 
@@ -87,11 +106,11 @@ names(covars)[1]<- c("lulc")
 #######################################################
 ### Extract values from raster layer for each track ###
 #######################################################
-# foo<- dat %>% filter(id  %in% c('gala','sara'))
+# foo<- dat %>% filter(id  %in% c('sara','tex'))
 plan(multisession)
 path<- extract.covars(data = dat, layers = covars, state.col = NULL, which_cat = "lulc",
-                      ind = "season")
-#takes 11 min to run
+                      dyn_names = c("ndvi","ndwi"), ind = "season")
+#takes 13 min to run
 
 future:::ClusterRegistry("stop")  #close all threads and memory used
 
@@ -102,7 +121,7 @@ future:::ClusterRegistry("stop")  #close all threads and memory used
 ### Explore relationships among variables ###
 #############################################
 
-PerformanceAnalytics::chart.Correlation(path[,2:6])  #no strong corrs
+PerformanceAnalytics::chart.Correlation(path[,2:7])  #no strong corrs
 
 
 ###################

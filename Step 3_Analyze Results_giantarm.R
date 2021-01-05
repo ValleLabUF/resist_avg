@@ -44,11 +44,11 @@ path<- path[path$dt >= 5 & path$dt <= 9 & !is.na(path$dt),]
 # Remove state col and rows where is.na(NDVI)
 path<- path %>% 
   dplyr::select(-state) %>% 
-  filter(!is.na(ndvi))
+  filter(!is.na(ndwi))
 
 
 # Center and scale covariates 
-path$ndvi<- as.numeric(scale(path$ndvi, center = TRUE, scale = TRUE))
+path$ndwi<- as.numeric(scale(path$ndwi, center = TRUE, scale = TRUE))
 
 
 
@@ -73,19 +73,20 @@ betas<- dat.summ$mean
 lulc<- raster('cheiann_UTM1.tif')
 # lulc<- as.factor(lulc)
 
-ndvi.filenames<- list.files(getwd(), pattern = "*.grd$")
-ndvi<- brick(ndvi.filenames[2])
+files<- list.files(getwd(), pattern = "*.grd$")
+ndwi.filenames<- files[grep("ndwi", files)]
+ndwi<- brick(ndwi.filenames[2])
 
 #change extent and dimensions of RasterBricks using resample()
-ndvi<- resample(ndvi, lulc, method = "bilinear")
-compareRaster(lulc, ndvi)
+ndwi<- resample(ndwi, lulc, method = "bilinear")
+compareRaster(lulc, ndwi)
 
 
 
 ##Perform raster math using beta coeffs
 
 #Make predictions using posterior mean of betas
-ind<- c("ndvi","X1", "X2", "X3", "X4")
+ind<- c("ndwi","X1", "X2", "X3", "X4")
 xmat<- data.matrix(path[,ind])
 
 x<- factor(getValues(lulc))
@@ -101,13 +102,12 @@ colnames(lulc.mat)<- ind[2:5]
 resist.dyn<- list()
 id1<- unique(dat.summ$id)
 
-for (j in 1:nlayers(ndvi)) {
-  print(names(ndvi)[j])
+for (j in 1:nlayers(ndwi)) {
+  print(names(ndwi)[j])
   
   tmp<- list()
   
-  # Using avg temperature and rainfall estimates
-  cov.mat<- cbind(ndvi = values(ndvi[[j]]), lulc.mat)
+  cov.mat<- cbind(ndwi = scale(values(ndwi[[j]]), center = T, scale = T), lulc.mat)
   
   for (i in 1:length(id1)) {
     print(i)
@@ -115,9 +115,6 @@ for (j in 1:nlayers(ndvi)) {
     resistSurf<- lulc
     raster::values(resistSurf)<- exp(cov.mat %*% dat.summ[which(dat.summ$id == id1[i]), "mean"])
     # resistSurf<- resistSurf * 60  #convert from min to sec
-    
-    #replace values for water class with NA
-    # values(resistSurf)[which(values(lulc) == 4)]<- NA
     
     #create as data frame
     resistSurf.df<- as.data.frame(resistSurf, xy=T) %>%
@@ -129,7 +126,7 @@ for (j in 1:nlayers(ndvi)) {
   
   names(tmp)<- names(sort(table(path$id), decreasing = TRUE))
   resist.dyn[[j]]<- tmp
-  names(resist.dyn)[j]<- names(ndvi)[j]
+  names(resist.dyn)[j]<- names(ndwi)[j]
 }
 
 
@@ -163,30 +160,32 @@ ggplot() +
         legend.title = element_text(size = 14),
         legend.text = element_text(size = 12)) +
   guides(fill = guide_colourbar(barwidth = 30, barheight = 1)) +
-  facet_wrap(season ~ id, nrow = 4)
+  facet_grid(season ~ id)
 
-# ggsave("Giant Armadillo Time Resistance_IDxSeason_facet.png", width = 8.5, height = 8, units = "in", dpi = 300)
+# ggsave("Giant Armadillo Time Resistance_IDxSeason_facet.png", width = 8.5, height = 8,
+#        units = "in", dpi = 300)
 
 
-#calculate mean resistance across IDs
-resist.mean.season<- resist.dyn.df %>% 
-  bayesmove::df_to_list(., "season") %>% 
-  map(., bayesmove::df_to_list, "id") %>% 
+#calculate mean resistance across seasons
+resist.mean.id<- resist.dyn.df %>% 
+  bayesmove::df_to_list(., "id") %>% 
+  map(., bayesmove::df_to_list, "season") %>% 
   map_depth(., 2, pluck, "time")
 
-resist.mean.season2<- resist.mean.season %>% 
+resist.mean.id2<- resist.mean.id %>% 
   map(., bind_cols) %>% 
-  map(., rowMeans) %>% 
+  map(., rowMeans, na.rm = TRUE) %>% 
   unlist()
 
-resist.mean.season3<- cbind(resist.dyn$Fall$gala[,c("x","y")], time = resist.mean.season2) %>% 
-  mutate(season = rep(c("Fall","Winter","Spring","Summer"), each = ncell(ndvi)), .before = "x")
+resist.mean.id3<- cbind(resist.dyn$Fall$gala[,c("x","y")], time = resist.mean.id2) %>% 
+  mutate(id = rep(names(resist.mean.id), each = ncell(ndwi)), .before = "x")
+# resist.mean.id3$id<- factor(resist.mean.id3$id, levels = names(resist.mean.id))
 
 
 
-## Mean across IDs
+## Mean across seasons
 ggplot() +
-  geom_raster(data = resist.mean.season3, aes(x, y, fill = time)) +
+  geom_raster(data = resist.mean.id3, aes(x, y, fill = time)) +
   geom_path(data = dat, aes(x, y, group = id), alpha = 0.5, color = "chartreuse") +
   scale_fill_viridis_c("Time Spent\nper Cell (min)", option = "inferno",
                        na.value = "transparent") +
@@ -203,209 +202,41 @@ ggplot() +
         legend.title = element_text(size = 14),
         legend.text = element_text(size = 12)) +
   guides(fill = guide_colourbar(barwidth = 30, barheight = 1)) +
-  facet_wrap(~ season, nrow = 1)
+  facet_wrap(~ id, nrow = 1)
 
-# ggsave("N Pantanal Time Resistance_mean.png", width = 8.5, height = 8, units = "in", dpi = 300)
-
-
-## LU/LC map for reference
-lulcN.df<- resist.mean.N.df %>% 
-  rename(lulc = time) %>% 
-  mutate(lulc = values(lulcN))
-
-ggplot() +
-  geom_raster(data = lulcN.df, aes(x, y, fill = factor(lulc))) +
-  scale_fill_brewer("", palette = "Accent", na.value = "transparent",
-                    labels = c("Pasture", "HQ", "Fence", "Water", "Cane", "Forest")) +
-  scale_x_continuous(expand = c(0,0)) +
-  scale_y_continuous(expand = c(0,0)) +
-  labs(x="Easting", y="Northing", title = "North Pantanal Land Cover") +
-  theme_bw() +
-  coord_equal() +
-  theme(legend.position = "right",
-        axis.title = element_text(size = 18),
-        axis.text = element_text(size = 10),
-        strip.text = element_text(size = 16, face = "bold"),
-        plot.title = element_text(size = 22),
-        legend.title = element_text(size = 14),
-        legend.text = element_text(size = 12))
+# ggsave("Giant Armadillo Time Resistance_ID_facet.png", width = 8.5, height = 4,
+#        units = "in", dpi = 300)
 
 
 
 
+#calculate mean and variance across IDs
+resist.pop<- resist.mean.id3 %>% 
+  bayesmove::df_to_list(., "id") %>% 
+  map_depth(., 1, pluck, "time")
 
-
-
-
-
-## South Pantanal
-
-#extract beta coeffs (mean)
-# betas_S<- unlist(MCMCpstr(res.S, params = "betas"))
-betas_S<- dat.S.summ$mean
-
-
-#Seed to center and scale raster values so comparable to beta coeffs
-
-#Load env raster data
-lulcS<- raster('lulc_S.tif')
-# lulcS<- as.factor(lulcS)
-ndviS<- raster('ndvi_S.tif')
-ndviS<- scale(ndviS, center = T, scale = T)
-
-
-scaled_t.ar_S<- path.S$t.ar %>% 
-  # scale(center = T, scale = T) %>% 
-  as.data.frame() %>% 
-  summarise(min=min(V1, na.rm = T), mean=mean(V1, na.rm = T), max=max(V1, na.rm = T))
-
-scaled_rain_S<- path.S$rain %>% 
-  # scale(center = T, scale = T) %>% 
-  as.data.frame() %>% 
-  summarise(min=min(V1, na.rm = T), mean=mean(V1, na.rm = T), max=max(V1, na.rm = T))
-
-
-
-
-
-##Perform raster math using beta coeffs
-
-#Make predictions using posterior mean of betas
-ind<- c("ndvi","Field", "Forest", "Water", "Pasture", "Road", "t.ar", "rain")
-xmat<- data.matrix(path.S[,ind])
-
-lulcS.mat<- model.matrix(~factor(getValues(lulcS)) + 0)
-colnames(lulcS.mat)<- ind[2:6]
-
-
-# #Min recorded temperature
-# S.mat<- cbind(lulcS.mat, t.ar = scaled_t.ar_S$min, rain = scaled_rain_S$mean)
-# 
-# resistSurfS_minTemp<- lulcS
-# raster::values(resistSurfS_minTemp)<- exp(S.mat %*% betas_S)
-# resistSurfS_minTemp<- resistSurfS_minTemp * 60  #convert from min to sec
-# resistSurfS_minTemp.df<- as.data.frame(resistSurfS_minTemp, xy=T) %>% 
-#   mutate(temp.level = "Min")
-# 
-# #replace values for water class with NA
-# resistSurfS_minTemp.df[which(values(lulcS) == 4), 3]<- NA
-# 
-# 
-# 
-# #Avg recorded temperature
-# S.mat<- cbind(lulcS.mat, t.ar = scaled_t.ar_S$mean, rain = scaled_rain_S$mean)
-# 
-# resistSurfS_avgTemp<- lulcS
-# raster::values(resistSurfS_avgTemp)<- exp(S.mat %*% betas_S)
-# resistSurfS_avgTemp<- resistSurfS_avgTemp * 60  #convert from min to sec
-# resistSurfS_avgTemp.df<- as.data.frame(resistSurfS_avgTemp, xy=T) %>% 
-#   mutate(temp.level = "Avg")
-# 
-# #replace values for water class with NA
-# resistSurfS_avgTemp.df[which(values(lulcS) == 4), 3]<- NA
-# 
-# 
-# 
-# #Max recorded temperature
-# S.mat<- cbind(lulcS.mat, t.ar = scaled_t.ar_S$max, rain = scaled_rain_S$mean)
-# 
-# resistSurfS_maxTemp<- lulcS
-# raster::values(resistSurfS_maxTemp)<- exp(S.mat %*% betas_S)
-# resistSurfS_maxTemp<- resistSurfS_maxTemp * 60  #convert from min to sec
-# resistSurfS_maxTemp.df<- as.data.frame(resistSurfS_maxTemp, xy=T) %>% 
-#   mutate(temp.level = "Max")
-# 
-# #replace values for water class with NA
-# resistSurfS_maxTemp.df[which(values(lulcS) == 4), 3]<- NA
-
-
-
-
-### Calculate Resistance Surface by ID ###
-
-resist.S<- list()
-
-# Using avg temperature and rainfall estimates
-S.mat<- cbind(ndvi = values(ndviS), lulcS.mat, t.ar = scaled_t.ar_S$mean,
-              rain = scaled_rain_S$mean)
-
-for (i in 2:11) {
-  print(i)
-  
-  resistSurfS<- lulcS
-  raster::values(resistSurfS)<- exp(S.mat %*% betas_S[12:19] + betas_S[i])
-  # resistSurfS<- resistSurfS * 60  #convert from min to sec
-  
-  #replace values for water class with NA
-  values(resistSurfS)[which(values(lulcS) == 4)]<- NA
-  
-  #create as data frame
-  resistSurfS.df<- as.data.frame(resistSurfS, xy=T) %>%
-    mutate(id = i)
-  
-  
-  resist.S[[i-1]]<- resistSurfS.df
-}
-
-
-
-#Combine all results together for each level of temperature
-# resistSurfS.df<- rbind(resistSurfS_minTemp.df, resistSurfS_avgTemp.df,
-#                               resistSurfS_maxTemp.df)
-# resistSurfS.df$temp.level<- factor(resistSurfS.df$temp.level,
-#                                           levels = c("Min", "Avg", "Max"))
-
-names(resist.S)<- names(sort(table(path.S$id), decreasing = TRUE))
-resist.S.df<- bind_rows(resist.S, .id = "id")
-names(resist.S.df)[3]<- "time"
-
-
-ggplot() +
-  geom_raster(data = resist.S.df,
-              aes(x, y, fill = time)) +
-  geom_path(data = dat.S,
-            aes(x, y, group = id), alpha = 0.5, color = "chartreuse") +
-  scale_fill_viridis_c("Time Spent\nper Cell (min)", option = "inferno",
-                       na.value = "transparent") +
-  scale_x_continuous(expand = c(0,0)) +
-  scale_y_continuous(expand = c(0,0)) +
-  labs(x="Easting", y="Northing", title = "South Pantanal Resistance Surface") +
-  theme_bw() +
-  coord_equal() +
-  theme(legend.position = "bottom",
-        axis.title = element_text(size = 18),
-        axis.text = element_text(size = 10),
-        strip.text = element_text(size = 16, face = "bold"),
-        plot.title = element_text(size = 22),
-        legend.title = element_text(size = 14),
-        legend.text = element_text(size = 12)) +
-  guides(fill = guide_colourbar(barwidth = 30, barheight = 1)) +
-  facet_wrap(~ id)
-
-# ggsave("S Pantanal Time Resistance_facet.png", width = 9, height = 5, units = "in", dpi = 300)
-
-
-
-#calculate mean resistance across IDs
-resist.mean.S<- resist.S.df %>% 
-  group_by(id) %>% 
-  group_split() %>% 
-  map(., . %>% dplyr::select(time)) %>% 
+resist.pop.mean<- resist.pop %>% 
   bind_cols() %>% 
-  rowMeans()
-resist.mean.S.df<- cbind(resist.S[[1]][,c("x","y")], time = resist.mean.S)
+  rowMeans(., na.rm = TRUE)
+
+resist.pop.var<- resist.pop %>% 
+  bind_cols() %>% 
+  apply(., 1, var, na.rm = TRUE)
+
+resist.pop2<- cbind(resist.dyn$Fall$gala[,c("x","y")], mu = resist.pop.mean,
+                    sig = resist.pop.var)
 
 
 
 ## Mean across IDs
 ggplot() +
-  geom_raster(data = resist.mean.S.df, aes(x, y, fill = time)) +
-  geom_path(data = dat.S, aes(x, y, group = id), alpha = 0.5, color = "blue") +
+  geom_raster(data = resist.pop2, aes(x, y, fill = mu)) +
+  geom_path(data = dat, aes(x, y, group = id), alpha = 0.5, color = "chartreuse") +
   scale_fill_viridis_c("Time Spent\nper Cell (min)", option = "inferno",
                        na.value = "transparent") +
   scale_x_continuous(expand = c(0,0)) +
   scale_y_continuous(expand = c(0,0)) +
-  labs(x="Easting", y="Northing", title = "South Pantanal Resistance Surface") +
+  labs(x="Easting", y="Northing", title = "Mean of Population") +
   theme_bw() +
   coord_equal() +
   theme(legend.position = "bottom",
@@ -417,21 +248,48 @@ ggplot() +
         legend.text = element_text(size = 12)) +
   guides(fill = guide_colourbar(barwidth = 30, barheight = 1))
 
-# ggsave("S Pantanal Time Resistance_mean.png", width = 9, height = 5, units = "in", dpi = 300)
+# ggsave("Giant Armadillo Time Resistance_mean.png", width = 9, height = 5,
+#        units = "in", dpi = 300)
+
+
+## Variance across IDs
+ggplot() +
+  geom_raster(data = resist.pop2, aes(x, y, fill = sig)) +
+  geom_path(data = dat, aes(x, y, group = id), alpha = 0.5, color = "chartreuse") +
+  scale_fill_viridis_c("Time Spent\nper Cell (min)", option = "viridis",
+                       na.value = "transparent") +
+  scale_x_continuous(expand = c(0,0)) +
+  scale_y_continuous(expand = c(0,0)) +
+  labs(x="Easting", y="Northing", title = "Variance of Population") +
+  theme_bw() +
+  coord_equal() +
+  theme(legend.position = "bottom",
+        axis.title = element_text(size = 18),
+        axis.text = element_text(size = 10),
+        strip.text = element_text(size = 16, face = "bold"),
+        plot.title = element_text(size = 22),
+        legend.title = element_text(size = 14),
+        legend.text = element_text(size = 12)) +
+  guides(fill = guide_colourbar(barwidth = 30, barheight = 1))
+
+# ggsave("Giant Armadillo Time Resistance_var.png", width = 9, height = 5,
+#        units = "in", dpi = 300)
+
+
 
 
 ## LU/LC map for reference
-lulcS.df<- resist.mean.S.df %>% 
-  rename(lulc = time) %>% 
-  mutate(lulc = values(lulcS))
+lulc.df<- resist.mean.id3 %>% 
+  rename(lulc = time)
+lulc.df$lulc<- raster::values(lulc)
 
 ggplot() +
-  geom_raster(data = lulcS.df, aes(x, y, fill = factor(lulc))) +
+  geom_raster(data = lulc.df, aes(x, y, fill = factor(lulc))) +
   scale_fill_brewer("", palette = "Accent", na.value = "transparent",
-                    labels = c("Field", "Forest", "Water", "Pasture", "Road")) +
+                    labels = c("Forest", "Closed Savanna", "Open Savanna", "Floodable","")) +
   scale_x_continuous(expand = c(0,0)) +
   scale_y_continuous(expand = c(0,0)) +
-  labs(x="Easting", y="Northing", title = "South Pantanal Land Cover") +
+  labs(x="Easting", y="Northing", title = "Pantanal Land Cover") +
   theme_bw() +
   coord_equal() +
   theme(legend.position = "right",
@@ -442,3 +300,4 @@ ggplot() +
         legend.title = element_text(size = 14),
         legend.text = element_text(size = 12))
 
+# ggsave("Giant Armadillo LULC.png", width = 6, height = 5, units = "in", dpi = 300)

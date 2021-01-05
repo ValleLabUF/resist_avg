@@ -32,12 +32,13 @@ df.to.list = function(dat, ind) {  #ind must be in quotes
 # }
 
 #----------------------------
-extract.covars.internal = function(dat, layers, state.col, which_cat, ind) {
+extract.covars.internal = function(dat, layers, state.col, which_cat, dyn_names, ind) {
   ## dat = data frame containing at least the id, coordinates (x,y), and date-time (date)
   ## layers = a raster object (Raster, RasterStack, RasterBrick) object containing environ covars
   ## state.col = character. The name of the column that contains behavioral states w/in
   ##             dat (if present)
-  ## which_cat = name or numeric position of a discrete raster layer; NULL by default 
+  ## which_cat = vector of names or numeric positions of discrete raster layers; NULL by default 
+  ## dyn_names = vector of names dynamic raster layers (in same order as layers); NULL by default
   ## ind = character/integer. The name or column position of the indicator column of dat to be
   ##       matched w/ names of a dynamic raster
   ##
@@ -53,6 +54,10 @@ extract.covars.internal = function(dat, layers, state.col, which_cat, ind) {
           as.numeric() %>%
           round()})
       tmp$dt<- c(purrr::discard(tmp$dt, is.na), NA)
+      
+      if (!is.null(dyn_names) & !is.factor(tmp[,ind])) stop("The `ind` column must be a factor.")
+      
+      
     
     #Identify levels of categorical layer (if available)
     if (!is.null(which_cat)) lev<- layers[[which_cat]]@data@attributes[[1]][,1]
@@ -77,8 +82,10 @@ extract.covars.internal = function(dat, layers, state.col, which_cat, ind) {
       #subset to only include time-matched vars (by some indicator variable)
       cond<- tmp[j-1, ind]
       cond2<- levels(cond)[which(cond != levels(cond))]
-      tmp1<- tmp1[,!(names(tmp1) %in% cond2)]
-      tmp1<- dplyr::rename(tmp1, ndvi = as.character(cond))
+      tmp1<- tmp1[,!stringr::str_detect(names(tmp1), paste(cond2, collapse="|"))]
+      
+      ind1<- stringr::str_which(names(tmp1), as.character(cond))
+      names(tmp1)[ind1]<- dyn_names
       
       
       #calculate segment means if continuous and proportions spent in each class if categorical
@@ -106,7 +113,8 @@ extract.covars.internal = function(dat, layers, state.col, which_cat, ind) {
 }
 
 #----------------------------
-extract.covars = function(data, layers, state.col = NULL, which_cat = NULL, ind) {
+extract.covars = function(data, layers, state.col = NULL, which_cat = NULL, dyn_names = NULL,
+                          ind) {
   ## data must be a data frame with "id" column, coords labeled "x" and "y" and datetime as POSIXct labeled "date"; optionally can have column that specifies behavioral state
   
   dat.list<- bayesmove::df_to_list(data, "id")
@@ -115,7 +123,8 @@ extract.covars = function(data, layers, state.col = NULL, which_cat = NULL, ind)
   path<- furrr::future_map(dat.list,
                            ~extract.covars.internal(dat = .x, layers = layers,
                                                     state.col = state.col,
-                                                    which_cat = which_cat, ind = ind),
+                                                    which_cat = which_cat,
+                                                    dyn_names = dyn_names, ind = ind),
                            .progress = TRUE, .options = furrr_options(seed = TRUE))
   tictoc::toc()
   

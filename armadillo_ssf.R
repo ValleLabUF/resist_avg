@@ -225,7 +225,7 @@ ggplot() +
         legend.text = element_text(size = 12)) +
   guides(fill = guide_colourbar(barwidth = 30, barheight = 1))
 
-setwd("~/Documents/Snail Kite Project/Local Presentation/")
+# setwd("~/Documents/Snail Kite Project/Local Presentation/")
 # ggsave("N Pantanal Habitat Selection.png", width = 9, height = 5, units = "in", dpi = 300)
 
 
