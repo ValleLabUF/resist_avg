@@ -9,6 +9,7 @@ library(raster)
 # library(survival)
 # library(TwoStepCLogit)
 library(amt)
+library(fishualize)
 
 
 #################
@@ -168,27 +169,43 @@ dat_ssf4$ndwi<- scale(dat_ssf4$ndwi)
 
 
 
-### Fit SSF using clogit()
-ssf.mod<- dat_ssf4 %>% 
-  fit_clogit(y ~ Closed_Savanna + Open_Savanna + Floodable + ndwi + strata(step_id) + 
-               survival::cluster(id))
-(soma<- summary(ssf.mod))
+### Fit SSF using clogit() by ID
+
+ssf.list<- vector("list", length(unique(dat_ssf4$id)))
+names(ssf.list)<- unique(dat$id)
+
+for (i in 1:length(ssf.list)) {
+  #fit model
+  ssf.mod <- dat_ssf4[dat_ssf4$id == i,] %>%
+    fit_clogit(y ~ Closed_Savanna + Open_Savanna + Floodable + ndwi + strata(step_id))
+  
+  #wrangle and store results
+  soma <- summary(ssf.mod)
+  tmp<- data.frame(soma$coefficients[,c("coef","se(coef)")])
+  tmp$coef.names<- rownames(tmp)
+  rownames(tmp)<- 1:nrow(tmp)
+  ssf.list[[i]]<- tmp
+}
 
 
 
 ### Make caterpillar plot
-soma.betas<- as.data.frame(soma$conf.int[-5,-2])
-names(soma.betas)<- c("mean", "lower", "upper")
-soma.betas$coeff<- rownames(soma.betas)
-soma.betas$coeff<- factor(soma.betas$coeff, levels = soma.betas$coeff)
+soma.betas<- bind_rows(ssf.list, .id = "id")
+soma.betas<- soma.betas %>% 
+  mutate(lower = coef - (1.96 * se.coef.),
+         upper = coef + (1.96 * se.coef.),
+         .before = coef.names)
+# names(soma.betas)<- c("mean", "lower", "upper")
+# soma.betas$coeff<- rownames(soma.betas)
+soma.betas$coef.names<- factor(soma.betas$coef.names, levels = unique(soma.betas$coef.names))
 
 
-ggplot(data=soma.betas, aes(x=coeff, y=mean, ymin=lower, ymax=upper)) +
-  geom_hline(yintercept = 1) +
-  geom_errorbar(position = position_dodge(0.75), width = 0, size = 0.75) +
-  geom_point(position = position_dodge(0.75), size=2) +
+ggplot(data=soma.betas, aes(x=coef.names, y=coef, ymin=lower, ymax=upper, color = id)) +
+  geom_hline(yintercept = 0) +
+  geom_errorbar(position = position_dodge(0.55), width = 0, size = 0.75) +
+  geom_point(position = position_dodge(0.55), size=2) +
   # scale_color_manual(values = pal) +
-  # scale_color_fish_d(option = "Scarus_tricolor") +
+  scale_color_fish_d(option = "Scarus_tricolor") +
   theme_bw() +
   coord_flip() +
   labs(x="", y="") +
@@ -203,7 +220,7 @@ ggplot(data=soma.betas, aes(x=coeff, y=mean, ymin=lower, ymax=upper)) +
 ### Make spatial predictions from SSF
 
 #extract beta coeffs (mean)
-betas<- coef(ssf.mod)
+betas<- soma.betas$coef
 
 #Center and scale NDWI raster
 ndwi_s<- scale(ndwi, center = T, scale = T)
@@ -223,18 +240,70 @@ colnames(lulc.mat)<- ind[2:5]
 
 
 
-# Combine LULC contrast w NDWI by season
+
+
+### Calculate Resistance Surface by ID ###
 
 ssfSurf<- vector("list", 4)
 names(ssfSurf)<- names(ndwi_s)
-for (i in 1:nlayers(ndwi_s)) {
-  mat<- cbind(lulc.mat[,-1], ndwi = values(ndwi_s[[i]]))
+id1<- unique(soma.betas$id)
+
+for (j in 1:nlayers(ndwi_s)) {
+  print(names(ndwi_s)[j])
   
-  tmp<- lulc
-  raster::values(tmp)<- exp(mat %*% betas[1:4])
+  tmp<- list()
   
-  ssfSurf[[i]]<- tmp
+  cov.mat<- cbind(lulc.mat, ndwi = raster::values(ndwi_s[[j]]))
+  
+  for (i in 1:length(id1)) {
+    print(i)
+    
+    ssf.res<- lulc
+    raster::values(ssf.res)<- exp(cov.mat[,-1] %*%  #remove FOREST
+                                       soma.betas[which(soma.betas$id == id1[i]), "coef"])
+    # resistSurf<- resistSurf * 60  #convert from min to sec
+    
+    #scale from 0 to 1
+    ssf.res<- ssf.res/ssf.res@data@max
+    
+    
+    #create as data frame
+    ssf.res.df<- as.data.frame(ssf.res, xy=T) %>%
+      mutate(id = i)
+    names(ssf.res.df)[3]<- "sel"
+    
+    tmp[[i]]<- ssf.res.df
+  }
+  
+  names(tmp)<- id1
+  ssfSurf[[j]]<- tmp
+  
 }
+
+
+ssfSurf.df<- map(ssfSurf, ~bind_rows(., .id = "id")) %>%
+  bind_rows(., .id = "season")
+ssfSurf.df$season<- factor(ssfSurf.df$season, levels = unique(ssfSurf.df$season))
+
+
+
+
+
+
+
+
+# # Combine LULC contrast w NDWI by season
+# 
+# ssfSurf<- vector("list", 4)
+# names(ssfSurf)<- names(ndwi_s)
+# for (i in 1:nlayers(ndwi_s)) {
+#   mat<- cbind(lulc.mat[,-1], ndwi = values(ndwi_s[[i]]))
+#   
+#   tmp<- lulc
+#   raster::values(tmp)<- exp(mat %*% betas[1:4])
+#   
+#   ssfSurf[[i]]<- tmp
+# }
 
 
 # Create function for negative exponential transformation of habitat suitability to resistance via Keeley et al. (2016):
@@ -243,26 +312,26 @@ neg.exp.trans = function(rast, c) {
   tmp
 }
 
-# Scale SSF prob and take inverse for resistance
-for (i in 1:length(ssfSurf)) {
-  ssfSurf[[i]]<- ssfSurf[[i]]/ssfSurf[[i]]@data@max
-}
+# # Scale SSF prob and take inverse for resistance
+# for (i in 1:length(ssfSurf)) {
+#   ssfSurf[[i]]<- ssfSurf[[i]]/ssfSurf[[i]]@data@max
+# }
 
 # ssfSurfN_r<- neg.exp.trans(ssfSurfN_s, 8)
 
 
 #create as data frame
-ssfSurf.df<- map(ssfSurf, as.data.frame, xy=T) %>% 
-  map(., ~rename(., sel = lulc)) %>% 
-  bind_rows(., .id = "season")
-ssfSurf.df$season<- factor(ssfSurf.df$season, levels = names(ssfSurf))
+# ssfSurf.df<- map(ssfSurf, as.data.frame, xy=T) %>% 
+#   map(., ~rename(., sel = lulc)) %>% 
+#   bind_rows(., .id = "season")
+# ssfSurf.df$season<- factor(ssfSurf.df$season, levels = names(ssfSurf))
 
 # ssfSurfN_r.df<- as.data.frame(ssfSurfN_r, xy=T)
 # names(ssfSurfN_r.df)[3]<- "resist"
 
 
 
-## Selection (by season)
+## Selection (by season and ID)
 ggplot() +
   geom_raster(data = ssfSurf.df, aes(x, y, fill = sel)) +
   geom_path(data = dat, aes(x, y, group = id), alpha = 0.75, color = "black") +
@@ -273,7 +342,7 @@ ggplot() +
   labs(x="Easting", y="Northing", title = "Habitat Selection") +
   theme_bw() +
   coord_equal() +
-  facet_wrap(~ season, nrow = 1) +
+  facet_grid(season ~ id) +
   theme(legend.position = "bottom",
         axis.title = element_text(size = 18),
         axis.text = element_text(size = 10),
@@ -283,25 +352,82 @@ ggplot() +
         legend.text = element_text(size = 12)) +
   guides(fill = guide_colourbar(barwidth = 30, barheight = 1))
 
-# ggsave("Giant Armadillo Habitat Selection_season.png", width = 9, height = 5,
+# ggsave("Giant Armadillo Habitat Selection_IDxSeason_facet.png", width = 8.5, height = 8,
 #        units = "in", dpi = 300)
 
 
+#calculate mean resistance across seasons
+ssf.mean.id<- ssfSurf.df %>% 
+  bayesmove::df_to_list(., "id") %>% 
+  map(., bayesmove::df_to_list, "season") %>% 
+  map_depth(., 2, pluck, "sel")
 
-## calculate mean across seasons
-ssfSurf.mean.df<- ssfSurf.df %>% 
-  pivot_wider(., names_from = season, values_from = sel) %>% 
-  mutate(., mu = rowMeans(select(., 3:6), na.rm = TRUE))
+ssf.mean.id2<- ssf.mean.id %>% 
+  map(., bind_cols) %>% 
+  map(., rowMeans, na.rm = TRUE) %>% 
+  unlist()
 
-## Selection (average)
+ssf.mean.id3<- cbind(ssfSurf$Fall$blanca[,c("x","y")], sel = ssf.mean.id2) %>% 
+  mutate(id = rep(names(ssf.mean.id), each = ncell(ndwi)), .before = "x")
+
+
+## Mean across seasons
 ggplot() +
-  geom_raster(data = ssfSurf.mean.df, aes(x, y, fill = mu)) +
+  geom_raster(data = ssf.mean.id3, aes(x, y, fill = sel)) +
   geom_path(data = dat, aes(x, y, group = id), alpha = 0.75, color = "black") +
   scale_fill_viridis_c("Selection", option = "inferno",
                        na.value = "transparent", limits = c(0,1)) +
   scale_x_continuous(expand = c(0,0)) +
   scale_y_continuous(expand = c(0,0)) +
   labs(x="Easting", y="Northing", title = "Habitat Selection") +
+  theme_bw() +
+  coord_equal() +
+  facet_wrap( ~ id, nrow = 1) +
+  theme(legend.position = "bottom",
+        axis.title = element_text(size = 18),
+        axis.text = element_text(size = 10),
+        strip.text = element_text(size = 16, face = "bold"),
+        plot.title = element_text(size = 22),
+        legend.title = element_text(size = 14),
+        legend.text = element_text(size = 12)) +
+  guides(fill = guide_colourbar(barwidth = 30, barheight = 1))
+
+# ggsave("Giant Armadillo Habitat Selection_ID_facet.png", width = 8.5, height = 4,
+#        units = "in", dpi = 300)
+
+
+
+# ## calculate mean across seasons
+# ssfSurf.mean.df<- ssfSurf.df %>% 
+#   pivot_wider(., names_from = season, values_from = sel) %>% 
+#   mutate(., mu = rowMeans(select(., 3:6), na.rm = TRUE))
+
+#calculate mean and variance across IDs
+ssf.pop<- ssf.mean.id3 %>% 
+  bayesmove::df_to_list(., "id") %>% 
+  map_depth(., 1, pluck, "sel")
+
+ssf.pop.mean<- ssf.pop %>% 
+  bind_cols() %>% 
+  rowMeans(., na.rm = TRUE)
+
+ssf.pop.var<- ssf.pop %>% 
+  bind_cols() %>% 
+  apply(., 1, var, na.rm = TRUE)
+
+ssf.pop2<- cbind(ssfSurf$Fall$blanca[,c("x","y")], mu = ssf.pop.mean,
+                    sig = ssf.pop.var)
+
+
+## Selection (average)
+ggplot() +
+  geom_raster(data = ssf.pop2, aes(x, y, fill = mu)) +
+  geom_path(data = dat, aes(x, y, group = id), alpha = 0.75, color = "black") +
+  scale_fill_viridis_c("Selection", option = "inferno",
+                       na.value = "transparent", limits = c(0,1)) +
+  scale_x_continuous(expand = c(0,0)) +
+  scale_y_continuous(expand = c(0,0)) +
+  labs(x="Easting", y="Northing", title = "Mean of Population") +
   theme_bw() +
   coord_equal() +
   theme(legend.position = "bottom",
@@ -313,7 +439,31 @@ ggplot() +
         legend.text = element_text(size = 12)) +
   guides(fill = guide_colourbar(barwidth = 30, barheight = 1))
 
-# ggsave("Giant Armadillo Habitat Selection.png", width = 9, height = 5,
+# ggsave("Giant Armadillo Habitat Selection_mean.png", width = 9, height = 5,
+#        units = "in", dpi = 300)
+
+
+## Selection (variance)
+ggplot() +
+  geom_raster(data = ssf.pop2, aes(x, y, fill = sig)) +
+  geom_path(data = dat, aes(x, y, group = id), alpha = 0.75, color = "black") +
+  scale_fill_viridis_c("Selection", option = "viridis",
+                       na.value = "transparent") +
+  scale_x_continuous(expand = c(0,0)) +
+  scale_y_continuous(expand = c(0,0)) +
+  labs(x="Easting", y="Northing", title = "Variance of Population") +
+  theme_bw() +
+  coord_equal() +
+  theme(legend.position = "bottom",
+        axis.title = element_text(size = 18),
+        axis.text = element_text(size = 10),
+        strip.text = element_text(size = 16, face = "bold"),
+        plot.title = element_text(size = 22),
+        legend.title = element_text(size = 14),
+        legend.text = element_text(size = 12)) +
+  guides(fill = guide_colourbar(barwidth = 30, barheight = 1))
+
+# ggsave("Giant Armadillo Habitat Selection_var.png", width = 9, height = 5,
 #        units = "in", dpi = 300)
 
 

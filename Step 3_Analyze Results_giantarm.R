@@ -41,7 +41,7 @@ path$date<- as_datetime(path$date)
 path<- path[path$dt >= 5 & path$dt <= 9 & !is.na(path$dt),]
 
 
-# Remove state col and rows where is.na(NDVI)
+# Remove state col and rows where is.na(NDWI)
 path<- path %>% 
   dplyr::select(-state) %>% 
   filter(!is.na(ndwi))

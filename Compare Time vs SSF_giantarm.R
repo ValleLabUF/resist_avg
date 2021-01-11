@@ -7,7 +7,7 @@ library(ggnewscale)
 
 ### Plot Velocity-based Resistance vs Habitat Selection
 
-dat.comp<- data.frame(sel = ssfSurf.mean.df$mu, res = resist.pop2$mu,
+dat.comp<- data.frame(sel = ssf.pop2$mu, res = resist.pop2$mu,
                       lulc = factor(raster::values(lulc)),
                       ndwi = raster::values(mean(ndwi, na.rm = T)))
 levels(dat.comp$lulc)<- c("Forest", "Closed_Savanna", "Open_Savanna", "Floodable")
@@ -56,9 +56,9 @@ ggplot() +
   scale_fill_distiller("Time Spent\nper Cell (min)", palette = "Blues",
                        na.value = "transparent", direction = 1) +
   new_scale_fill() +
-  geom_raster(data = ssfSurf.mean.df, aes(x, y, fill = mu), alpha = 0.6) +
+  geom_raster(data = ssf.pop2, aes(x, y, fill = mu), alpha = 0.6) +
   scale_fill_distiller("Selection", palette = "Reds",
-                       na.value = "transparent", direction = 1, limits = c(0,1)) +
+                       na.value = "transparent", direction = -1, limits = c(0,1)) +
   geom_path(data = dat, aes(x, y, group = id), alpha = 0.5, color = "chartreuse") +
   scale_x_continuous(expand = c(0,0)) +
   scale_y_continuous(expand = c(0,0)) +
@@ -81,7 +81,7 @@ ggplot() +
 
 ## Creation of 4 classes
 
-all.dat<- cbind(resist.pop2[,-4], ssfSurf.mean.df$mu)
+all.dat<- cbind(resist.pop2[,-4], ssf.pop2$mu)
 names(all.dat)[3:4]<- c("time", "sel")
 
 all.dat<- all.dat %>% 
