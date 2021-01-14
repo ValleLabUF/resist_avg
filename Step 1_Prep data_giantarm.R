@@ -73,6 +73,7 @@ plot(ndvi.season[[1]]); points(dat$x, dat$y)
 
 
 
+
 ##########################
 ### Import NDWI layers ###
 ##########################
@@ -110,7 +111,7 @@ names(covars)[1]<- c("lulc")
 plan(multisession)
 path<- extract.covars(data = dat, layers = covars, state.col = NULL, which_cat = "lulc",
                       dyn_names = c("ndvi","ndwi"), ind = "season")
-#takes 13 min to run
+#takes 11 min to run
 
 future:::ClusterRegistry("stop")  #close all threads and memory used
 
@@ -121,7 +122,7 @@ future:::ClusterRegistry("stop")  #close all threads and memory used
 ### Explore relationships among variables ###
 #############################################
 
-PerformanceAnalytics::chart.Correlation(path[,2:7])  #no strong corrs
+PerformanceAnalytics::chart.Correlation(path[,2:6])  #no strong corrs
 
 
 ###################
