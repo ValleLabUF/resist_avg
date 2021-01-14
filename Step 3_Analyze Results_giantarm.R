@@ -71,7 +71,16 @@ betas<- dat.summ$mean
 
 #Load env raster data
 lulc<- raster('cheiann_UTM1.tif')
+names(lulc)<- "lulc"
 # lulc<- as.factor(lulc)
+
+#crop raster to limit spatial extrapolation
+lulc<- crop(lulc, extent(dat %>% 
+                           summarize(xmin = min(x) - 5000,
+                                     xmax = max(x) + 5000,
+                                     ymin = min(y) - 5000,
+                                     ymax = max(y) + 5000) %>% 
+                           unlist()))
 
 files<- list.files(getwd(), pattern = "*.grd$")
 ndwi.filenames<- files[grep("ndwi", files)]
@@ -149,7 +158,7 @@ ggplot() +
                        na.value = "transparent") +
   scale_x_continuous(expand = c(0,0)) +
   scale_y_continuous(expand = c(0,0)) +
-  labs(x="Easting", y="Northing", title = "Giant Armadillo Resistance Surface") +
+  labs(x="Easting", y="Northing", title = "Resistance Surface") +
   theme_bw() +
   coord_equal() +
   theme(legend.position = "bottom",
@@ -162,13 +171,21 @@ ggplot() +
   guides(fill = guide_colourbar(barwidth = 30, barheight = 1)) +
   facet_grid(season ~ id)
 
-# ggsave("Giant Armadillo Time Resistance_IDxSeason_facet.png", width = 8.5, height = 8,
+# ggsave("Giant Armadillo Time Resistance_IDxSeason_facet.png", width = 9, height = 7.5,
 #        units = "in", dpi = 300)
 
+
+tmp<- bayesmove::df_to_list(dat, "id") %>% 
+  purrr::map(., . %>% 
+               dplyr::select(season) %>% 
+               unique() %>% 
+               unlist())
 
 #calculate mean resistance across seasons
 resist.mean.id<- resist.dyn.df %>% 
   bayesmove::df_to_list(., "id") %>% 
+  map2(., tmp, ~{.x %>% 
+      filter(season %in% .y)}) %>% 
   map(., bayesmove::df_to_list, "season") %>% 
   map_depth(., 2, pluck, "time")
 
@@ -191,7 +208,7 @@ ggplot() +
                        na.value = "transparent") +
   scale_x_continuous(expand = c(0,0)) +
   scale_y_continuous(expand = c(0,0)) +
-  labs(x="Easting", y="Northing", title = "Giant Armadillo Resistance Surface") +
+  labs(x="Easting", y="Northing", title = "Resistance Surface") +
   theme_bw() +
   coord_equal() +
   theme(legend.position = "bottom",
@@ -285,7 +302,8 @@ lulc.df$lulc<- raster::values(lulc)
 
 ggplot() +
   geom_raster(data = lulc.df, aes(x, y, fill = factor(lulc))) +
-  scale_fill_brewer("", palette = "Accent", na.value = "transparent",
+  scale_fill_manual("", values = c("darkgreen","burlywood4","darkolivegreen3","lightskyblue1"),
+                    na.value = "transparent",
                     labels = c("Forest", "Closed Savanna", "Open Savanna", "Floodable","")) +
   scale_x_continuous(expand = c(0,0)) +
   scale_y_continuous(expand = c(0,0)) +
@@ -300,4 +318,8 @@ ggplot() +
         legend.title = element_text(size = 14),
         legend.text = element_text(size = 12))
 
-# ggsave("Giant Armadillo LULC.png", width = 6, height = 5, units = "in", dpi = 300)
+# ggsave("Giant Armadillo LULC.png", width = 6, height = 4, units = "in", dpi = 300)
+
+
+
+# write.csv(resist.pop2, "Giant Armadillo Resistance summary results.csv", row.names = F)

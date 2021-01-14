@@ -81,11 +81,13 @@ resist = function(data, covs, priors, ngibbs) {
   tictoc::tic()
   dat.res<- furrr::future_pmap(list(y,xmat,npix),
     function(a, b, c) {
-      gibbs_resist(y=a, xmat=data.matrix(b[,-1]), ngibbs=ngibbs, nburn=nburn, var.betas=priors,
-                   w=w, MaxIter=MaxIter, npix=c)
+      tmp<- gibbs_resist(y=a, xmat=data.matrix(b[,-1]), ngibbs=ngibbs, nburn=nburn,
+                         var.betas=priors, w=w, MaxIter=MaxIter, npix=c)
       p()  #for progress bar
+      
+      tmp
       },
-    .options = furrr_options(seed = TRUE), .progress = FALSE)
+    .options = furrr_options(seed = TRUE))
   tictoc::toc()
   
   

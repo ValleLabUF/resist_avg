@@ -1,7 +1,7 @@
 
-### Fit 3-banded armadillo movement using SSF
+### Fit giant armadillo movement using SSF
 
-library(glmmTMB)
+# library(glmmTMB)
 library(lubridate)
 # library(INLA)
 library(tidyverse)
@@ -15,6 +15,8 @@ library(fishualize)
 #################
 ### Load data ###
 #################
+
+set.seed(2021)
 
 setwd("~/Documents/Snail Kite Project/Data/R Scripts/acceleration")
 dat<- read.csv("Binned Armadillo Acceleration Data.csv", as.is = T)
@@ -64,6 +66,14 @@ setwd("~/Documents/Snail Kite Project/Data/R Scripts/ValleLabUF/resist_avg")
 #LULC
 lulc<- raster('cheiann_UTM1.tif')
 names(lulc)<- "lulc"
+
+#crop raster to limit spatial extrapolation
+lulc<- crop(lulc, extent(dat %>% 
+                          summarize(xmin = min(x) - 5000,
+                                    xmax = max(x) + 5000,
+                                    ymin = min(y) - 5000,
+                                    ymax = max(y) + 5000) %>% 
+                          unlist()))
 
 #NDWI
 files<- list.files(getwd(), pattern = "*.grd$")
@@ -212,7 +222,7 @@ ggplot(data=soma.betas, aes(x=coef.names, y=coef, ymin=lower, ymax=upper, color 
   theme(axis.text = element_text(size = 14),
         panel.grid = element_blank())
 
-# ggsave("Giant Armadillo Habitat Selection_coeffs.png", width = 6, height = 5,
+# ggsave("Giant Armadillo Habitat Selection_coeffs.png", width = 9, height = 5,
 #        units = "in", dpi = 300)
 
 
@@ -259,13 +269,10 @@ for (j in 1:nlayers(ndwi_s)) {
     print(i)
     
     ssf.res<- lulc
-    raster::values(ssf.res)<- exp(cov.mat[,-1] %*%  #remove FOREST
-                                       soma.betas[which(soma.betas$id == id1[i]), "coef"])
+    w.hat<- exp(cov.mat[,-1] %*%  #remove FOREST
+                  soma.betas[which(soma.betas$id == id1[i]), "coef"])
+    raster::values(ssf.res)<- w.hat/(1 + w.hat)
     # resistSurf<- resistSurf * 60  #convert from min to sec
-    
-    #scale from 0 to 1
-    ssf.res<- ssf.res/ssf.res@data@max
-    
     
     #create as data frame
     ssf.res.df<- as.data.frame(ssf.res, xy=T) %>%
@@ -334,7 +341,7 @@ neg.exp.trans = function(rast, c) {
 ## Selection (by season and ID)
 ggplot() +
   geom_raster(data = ssfSurf.df, aes(x, y, fill = sel)) +
-  geom_path(data = dat, aes(x, y, group = id), alpha = 0.75, color = "black") +
+  geom_path(data = dat, aes(x, y, group = id), alpha = 0.75, color = "chartreuse") +
   scale_fill_viridis_c("Selection", option = "inferno",
                        na.value = "transparent", limits = c(0,1)) +
   scale_x_continuous(expand = c(0,0)) +
@@ -352,13 +359,35 @@ ggplot() +
         legend.text = element_text(size = 12)) +
   guides(fill = guide_colourbar(barwidth = 30, barheight = 1))
 
-# ggsave("Giant Armadillo Habitat Selection_IDxSeason_facet.png", width = 8.5, height = 8,
+# ggsave("Giant Armadillo Habitat Selection_IDxSeason_facet.png", width = 9, height = 7.5,
 #        units = "in", dpi = 300)
 
+
+#remove predictions for seasons in which ID has no observations; will only calculate mean habitat selection based on seasons w/ data
+# seasons<- names(ndwi)
+# id.tmp<- list()
+# for (i in 1:length(unique(ssfSurf.df$id))) {
+#   cond<- unique(dat[dat$id == unique(dat$id)[i], "season"])
+#   ind1<- which(seasons %in% cond)
+#   
+#   id.tmp[[i]]<- ssfSurf.df %>% 
+#     filter(id == unique(ssfSurf.df$id)[i]) %>% 
+#     filter(season == seasons[ind1])
+# }
+# ssfSurf.df2<- bind_rows(id.tmp)
+
+
+tmp<- bayesmove::df_to_list(dat, "id") %>% 
+  purrr::map(., . %>% 
+               dplyr::select(season) %>% 
+               unique() %>% 
+               unlist())
 
 #calculate mean resistance across seasons
 ssf.mean.id<- ssfSurf.df %>% 
   bayesmove::df_to_list(., "id") %>% 
+  map2(., tmp, ~{.x %>% 
+         filter(season %in% .y)}) %>% 
   map(., bayesmove::df_to_list, "season") %>% 
   map_depth(., 2, pluck, "sel")
 
@@ -371,10 +400,10 @@ ssf.mean.id3<- cbind(ssfSurf$Fall$blanca[,c("x","y")], sel = ssf.mean.id2) %>%
   mutate(id = rep(names(ssf.mean.id), each = ncell(ndwi)), .before = "x")
 
 
-## Mean across seasons
+## Mean across seasons (where observations recorded)
 ggplot() +
   geom_raster(data = ssf.mean.id3, aes(x, y, fill = sel)) +
-  geom_path(data = dat, aes(x, y, group = id), alpha = 0.75, color = "black") +
+  geom_path(data = dat, aes(x, y, group = id), alpha = 0.75, color = "chartreuse") +
   scale_fill_viridis_c("Selection", option = "inferno",
                        na.value = "transparent", limits = c(0,1)) +
   scale_x_continuous(expand = c(0,0)) +
@@ -492,3 +521,8 @@ ggplot() +
 # ggsave("N Pantanal Resistance.png", width = 9, height = 5, units = "in", dpi = 300)
 
 
+
+
+### Export summary results
+
+# write.csv(ssf.pop2, "Giant Armadillo SSF summary results.csv", row.names = F)

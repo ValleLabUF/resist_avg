@@ -72,8 +72,8 @@ path$ndwi<- as.numeric(scale(path$ndwi, center = TRUE, scale = TRUE))
 #################
 
 #prepare data
-names(path)[4:7]<- c("Forest", "Open_Savanna", "Closed_Savanna", "Floodable")
-ind<- c("ndwi","Forest", "Open_Savanna", "Closed_Savanna", "Floodable")
+names(path)[4:7]<- c("Forest", "Closed_Savanna", "Open_Savanna", "Floodable")
+ind<- c("ndwi","Forest", "Closed_Savanna", "Open_Savanna", "Floodable")
 # xmat<- data.matrix(path[,ind])
 # npix<- path$n
 # y<- path$dt
@@ -153,8 +153,8 @@ post$coeff<- factor(post$coeff, levels = ind)
 
 ggplot(data=post, aes(x=coeff, y=mean, ymin=lower, ymax=upper, color = id)) +
   geom_hline(yintercept = 0) +
-  geom_errorbar(position = position_dodge(0.75), width = 0, size = 0.75) +
-  geom_point(position = position_dodge(0.75), size=2) +
+  geom_errorbar(position = position_dodge(0.55), width = 0, size = 0.75) +
+  geom_point(position = position_dodge(0.55), size=2) +
   # scale_color_manual(values = pal) +
   scale_color_fish_d(option = "Scarus_tricolor") +
   theme_bw() +
@@ -162,6 +162,9 @@ ggplot(data=post, aes(x=coeff, y=mean, ymin=lower, ymax=upper, color = id)) +
   labs(x="", y="") +
   theme(axis.text = element_text(size = 14),
         panel.grid = element_blank())
+
+# ggsave("Giant Armadillo Resistance_coeffs.png", width = 9, height = 5,
+#        units = "in", dpi = 300)
 
 
 
