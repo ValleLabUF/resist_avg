@@ -30,14 +30,17 @@ path$date<- as_datetime(path$date)
 path<- path[path$dt >= 5 & path$dt <= 9 & !is.na(path$dt),]
 
 
-# Remove state col and rows where is.na(NDWI)
+# Remove state col and rows where is.na(greenness)
 path<- path %>% 
-  dplyr::select(-state) %>% 
-  filter(!is.na(ndwi))
+  # dplyr::select(-state) %>% 
+  filter(!is.na(green))
 
 
 # Center and scale covariates 
-path$ndwi<- as.numeric(scale(path$ndwi, center = TRUE, scale = TRUE))
+# path$ndwi<- as.numeric(scale(path$ndwi, center = TRUE, scale = TRUE))
+path<- path %>% 
+  mutate(across(elev:wet, scale)) %>% 
+  dplyr::select(-elev)  #remove elev to see if it removes weird predictions
 
 
 # Add cols for season
@@ -72,15 +75,14 @@ path$ndwi<- as.numeric(scale(path$ndwi, center = TRUE, scale = TRUE))
 #################
 
 #prepare data
-names(path)[4:7]<- c("Forest", "Closed_Savanna", "Open_Savanna", "Floodable")
-ind<- c("ndwi","Forest", "Closed_Savanna", "Open_Savanna", "Floodable")
+ind<- c("green", "wet")
 # xmat<- data.matrix(path[,ind])
 # npix<- path$n
 # y<- path$dt
 
 
 #model args
-ngibbs=1000
+ngibbs=5000
 # nburn=ngibbs/2
 # w=0.01
 # MaxIter=1000
@@ -97,8 +99,7 @@ progressr::with_progress({
   res<- resist(data = path, covs = ind, priors = var.betas, ngibbs = ngibbs)
 })
 future:::ClusterRegistry("stop")  #close all threads and memory used
-# takes 7.5 min to run (for 1000 iter)
-# takes 71 min to run (for 2000 iter w season and interactions)
+# takes 55 sec to run (for 5000 iter)
 
 
 

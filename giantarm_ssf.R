@@ -1,12 +1,12 @@
 
 ### Fit giant armadillo movement using SSF
 
-# library(glmmTMB)
+library(glmmTMB)
 library(lubridate)
 # library(INLA)
 library(tidyverse)
 library(raster)
-# library(survival)
+library(survival)
 # library(TwoStepCLogit)
 library(amt)
 library(fishualize)
@@ -19,12 +19,13 @@ library(fishualize)
 set.seed(2021)
 
 setwd("~/Documents/Snail Kite Project/Data/R Scripts/acceleration")
-dat<- read.csv("Binned Armadillo Acceleration Data.csv", as.is = T)
 
-# Filter out observations where coords are NA
-dat<- dat %>% 
-  filter(!is.na(x))
-
+dat<- read.csv('Giant Armadillo state estimates.csv', as.is = T)
+dat<-  dat %>% 
+  rename(x = easting, y = northing) %>% 
+  mutate(across(c('z.map','z.post.thresh','z.post.max'), factor,
+                levels = c("Slow-Turn","Slow-Unif","Exploratory","Transit","Unclassified"))
+  )
 
 dat$month<- month.abb[month(dat$date)]
 dat$month<- factor(dat$month, levels = month.abb[c(5:12,1)])
@@ -35,7 +36,7 @@ dat$season<- factor(dat$season, levels = c("Fall","Winter","Spring","Summer"))
 
 dat<- dat %>% 
   rename(t = date) %>% 
-  mutate_at("t", as_datetime)
+  mutate_at("t", as_datetime, tz = "UTC")
 
 
 
@@ -61,31 +62,25 @@ dat1 <- dat_all %>%
 
 
 #Load in environmental covariates
+
+#Tasseled Cap Greenness
+green<- brick('GiantArm_tcgreen_season.grd')
+green_s<- green  #for scaled greenness
+values(green_s)<- scale(values(green_s))
+
+#Tasseled Cap Wetness
+wet<- brick('GiantArm_tcwet_season.grd')
+wet_s<- wet  #for scaled wetness
+values(wet_s)<- scale(values(wet_s))
+compareRaster(green_s, wet_s)
+
+
+#set times (Z) for dynamic greenness and wetness RasterBricks
+green_s<- setZ(green_s, ymd(c("2019-03-01","2019-06-01","2019-09-01","2019-12-01")))
+wet_s<- setZ(wet_s, ymd(c("2019-03-01","2019-06-01","2019-09-01","2019-12-01")))
+
 setwd("~/Documents/Snail Kite Project/Data/R Scripts/ValleLabUF/resist_avg")
 
-#LULC
-lulc<- raster('cheiann_UTM1.tif')
-names(lulc)<- "lulc"
-
-#crop raster to limit spatial extrapolation
-lulc<- crop(lulc, extent(dat %>% 
-                          summarize(xmin = min(x) - 5000,
-                                    xmax = max(x) + 5000,
-                                    ymin = min(y) - 5000,
-                                    ymax = max(y) + 5000) %>% 
-                          unlist()))
-
-#NDWI
-files<- list.files(getwd(), pattern = "*.grd$")
-ndwi.filenames<- files[grep("ndwi", files)]
-ndwi.season<- brick(ndwi.filenames[2])
-ndwi.season<- resample(ndwi.season, lulc, method = "bilinear")
-compareRaster(lulc, ndwi.season)
-
-#set times (Z) for dynamic ndwi RasterBrick (still need to provide a value for lulc too)
-ndwi<- setZ(ndwi.season, ymd(c("2019-03-01","2019-06-01","2019-09-01","2019-12-01")))
-
-## will need to extract lulc and ndwi separately
 
 
 
@@ -100,12 +95,17 @@ dat_ssf <- dat1 %>%
 
 dat_ssf2<- dat_ssf %>% 
   mutate(stps = map(stps, ~.x %>% 
-                      extract_covariates_var_time(covariates = ndwi,
+                      extract_covariates_var_time(covariates = green_s,
                                                               when = "after",
                                                               where = "end",
                                                               max_time = days(91),
-                                                              name_covar = "ndwi") %>% 
-                      extract_covariates(lulc))) %>% 
+                                                              name_covar = "green") %>% 
+                      extract_covariates_var_time(covariates = wet_s,
+                                                  when = "after",
+                                                  where = "end",
+                                                  max_time = days(91),
+                                                  name_covar = "wet")
+                    )) %>% 
   select(id, stps) %>% unnest() %>% 
   mutate(
     y = as.numeric(case_),
@@ -114,40 +114,41 @@ dat_ssf2<- dat_ssf %>%
 dat_ssf2
 
 
-# Remove obs where NDWI is NA
-dat_ssf3<- dat_ssf2[-which(is.na(dat_ssf2$ndwi)),]
-
-
-# Convert 'lulc' to a dummy variable
-group<- factor(dat_ssf3$lulc)
-lulc_dum<- model.matrix(~ group + 0)
-colnames(lulc_dum)<- c("Forest", "Closed_Savanna", "Open_Savanna", "Floodable")
-
-# Add lulc contrast to data frame
-dat_ssf4<- cbind(dat_ssf3, lulc_dum)
-
-# Center and scale NDWI
-dat_ssf4$ndwi<- scale(dat_ssf4$ndwi)
+# Remove obs where green is NA
+dat_ssf3<- dat_ssf2[-which(is.na(dat_ssf2$green)),]
 
 
 
 ### glmmTMB for fitting SSF
 
-## First try fitting a model w/o random slopes (leave out 'Pasture' as reference level)
-# TMBStruc.fix = glmmTMB(y ~ HQ + Fence + Water + Cane + Forest + ndvi_N +
-#                          (1|step_id), 
-#                        family=poisson, data=dat_ssf.N2, doFit=FALSE) 
+# ssf.list<- vector("list", length(unique(dat_ssf4$id)))
+# names(ssf.list)<- unique(dat$id)
 # 
-# # Then fix the standard deviation of the first random term, which is the `(1|step_id)` component  in the above model equation:
-# TMBStruc.fix$parameters$theta[1] = log(1e3) 
-# 
-# # We need to tell `glmmTMB` not to change the variance by setting it to `NA`:
-# TMBStruc.fix$mapArg = list(theta=factor(c(NA)))
-# 
-# # Then fit the model and look at the results:
-# glmm.TMB.fixed = glmmTMB:::fitTMB(TMBStruc.fix) 
-# summary(glmm.TMB.fixed)
-
+# for (i in 1:length(ssf.list)) {
+#   print(i)
+#   ## First try fitting a model w/o random slopes (leave out 'Pasture' as reference level)
+#   TMBStruc.fix = glmmTMB(y ~ Closed_Savanna + Open_Savanna + Floodable + ndwi +
+#                            (1|step_id),
+#                          family=poisson,
+#                          data=dat_ssf4[dat_ssf4$id == i,],
+#                          doFit=FALSE)
+#   
+#   # Then fix the standard deviation of the first random term, which is the `(1|step_id)` component  in the above model equation:
+#   TMBStruc.fix$parameters$theta[1] = log(1e2)
+#   
+#   # We need to tell `glmmTMB` not to change the variance by setting it to `NA`:
+#   TMBStruc.fix$mapArg = list(theta=factor(c(NA)))
+#   
+#   # Then fit the model and look at the results:
+#   glmm.TMB.fixed = glmmTMB:::fitTMB(TMBStruc.fix)
+#   
+#   #wrangle and store results
+#   soma <- summary(glmm.TMB.fixed)
+#   tmp<- data.frame(soma$coefficients$cond[,c("Estimate","Std. Error")])
+#   tmp$coef.names<- rownames(tmp)
+#   rownames(tmp)<- 1:nrow(tmp)
+#   ssf.list[[i]]<- tmp[-1,]
+# }
 
 
 # Now the same model using `glmmTMB()`. Note that we do not need an overall intercept in this model, because the stratum-specific intercepts are (almost) freely estimated due to the large, fixed variance. Again start to set up the model without fitting the model:
@@ -181,13 +182,13 @@ dat_ssf4$ndwi<- scale(dat_ssf4$ndwi)
 
 ### Fit SSF using clogit() by ID
 
-ssf.list<- vector("list", length(unique(dat_ssf4$id)))
+ssf.list<- vector("list", length(unique(dat_ssf3$id)))
 names(ssf.list)<- unique(dat$id)
 
 for (i in 1:length(ssf.list)) {
   #fit model
-  ssf.mod <- dat_ssf4[dat_ssf4$id == i,] %>%
-    fit_clogit(y ~ Closed_Savanna + Open_Savanna + Floodable + ndwi + strata(step_id))
+  ssf.mod <- dat_ssf3[dat_ssf3$id == i,] %>%
+    fit_clogit(y ~ green + wet + strata(step_id))
   
   #wrangle and store results
   soma <- summary(ssf.mod)
@@ -201,9 +202,10 @@ for (i in 1:length(ssf.list)) {
 
 ### Make caterpillar plot
 soma.betas<- bind_rows(ssf.list, .id = "id")
+names(soma.betas)[2:3]<- c("coef","se.coef")
 soma.betas<- soma.betas %>% 
-  mutate(lower = coef - (1.96 * se.coef.),
-         upper = coef + (1.96 * se.coef.),
+  mutate(lower = coef - (1.96 * se.coef),
+         upper = coef + (1.96 * se.coef),
          .before = coef.names)
 # names(soma.betas)<- c("mean", "lower", "upper")
 # soma.betas$coeff<- rownames(soma.betas)
@@ -232,45 +234,46 @@ ggplot(data=soma.betas, aes(x=coef.names, y=coef, ymin=lower, ymax=upper, color 
 #extract beta coeffs (mean)
 betas<- soma.betas$coef
 
-#Center and scale NDWI raster
-ndwi_s<- scale(ndwi, center = T, scale = T)
-
 
 ##Perform raster math using beta coeffs
 
 #Make predictions using posterior mean of betas
-ind<- c("ndwi","Forest", "Closed_Savanna", "Open_Savanna", "Floodable")
-xmat<- dat_ssf4 %>% 
+ind<- c("green","wet")
+xmat<- dat_ssf3 %>% 
   filter(y == 1) %>% 
   dplyr::select(all_of(ind)) %>% 
   data.matrix()
 
-lulc.mat<- model.matrix.lm(~factor(getValues(lulc)) + 0, na.action = "na.pass")
-colnames(lulc.mat)<- ind[2:5]
 
 
+# ## currently ssf.mod is fit for  a single ID; last stored model is for 'tex'
+# 
+# lulc.mat2<- data.frame(lulc.mat)[,-1]
+# covars<- cbind(lulc.mat2, ndwi = values(ndwi_s$Fall), step_id = NA)
+# 
+# pred.fall<- predict(object = ssf.mod$model, newdata = covars, type = "risk", reference = "sample")
+# pred.fall.prob<- pred.fall / (1 + pred.fall)
 
 
 
 ### Calculate Resistance Surface by ID ###
 
 ssfSurf<- vector("list", 4)
-names(ssfSurf)<- names(ndwi_s)
+names(ssfSurf)<- names(green_s)
 id1<- unique(soma.betas$id)
 
-for (j in 1:nlayers(ndwi_s)) {
-  print(names(ndwi_s)[j])
+for (j in 1:nlayers(green_s)) {
+  print(names(green_s)[j])
   
   tmp<- list()
   
-  cov.mat<- cbind(lulc.mat, ndwi = raster::values(ndwi_s[[j]]))
+  cov.mat<- cbind(green = raster::values(green_s[[j]]), wet = raster::values(wet_s[[j]]))
   
   for (i in 1:length(id1)) {
     print(i)
     
-    ssf.res<- lulc
-    w.hat<- exp(cov.mat[,-1] %*%  #remove FOREST
-                  soma.betas[which(soma.betas$id == id1[i]), "coef"])
+    ssf.res<- green[[1]]
+    w.hat<- exp(cov.mat %*% soma.betas[which(soma.betas$id == id1[i]), "coef"])
     raster::values(ssf.res)<- w.hat/(1 + w.hat)
     # resistSurf<- resistSurf * 60  #convert from min to sec
     
@@ -380,24 +383,29 @@ ggplot() +
 tmp<- bayesmove::df_to_list(dat, "id") %>% 
   purrr::map(., . %>% 
                dplyr::select(season) %>% 
-               unique() %>% 
+               # unique() %>% 
                unlist())
+
+weights<- tmp %>% 
+  map(., ~{table(.x)/length(.x)}) %>% 
+  map(., ~{.x[.x !=0]})
+
 
 #calculate mean resistance across seasons
 ssf.mean.id<- ssfSurf.df %>% 
   bayesmove::df_to_list(., "id") %>% 
   map2(., tmp, ~{.x %>% 
-         filter(season %in% .y)}) %>% 
+         filter(season %in% unique(.y))}) %>% 
   map(., bayesmove::df_to_list, "season") %>% 
   map_depth(., 2, pluck, "sel")
 
 ssf.mean.id2<- ssf.mean.id %>% 
   map(., bind_cols) %>% 
-  map(., rowMeans, na.rm = TRUE) %>% 
+  map2(., weights, ~apply(.x, 1, function(x) weighted.mean(x, .y, na.rm = TRUE))) %>% 
   unlist()
 
 ssf.mean.id3<- cbind(ssfSurf$Fall$blanca[,c("x","y")], sel = ssf.mean.id2) %>% 
-  mutate(id = rep(names(ssf.mean.id), each = ncell(ndwi)), .before = "x")
+  mutate(id = rep(names(ssf.mean.id), each = ncell(green)), .before = "x")
 
 
 ## Mean across seasons (where observations recorded)
@@ -436,19 +444,36 @@ ssf.pop<- ssf.mean.id3 %>%
   bayesmove::df_to_list(., "id") %>% 
   map_depth(., 1, pluck, "sel")
 
+weights2<- table(dat$id)/nrow(dat)  #don't need to reorder for this script
+weights2_red<- table(dat$id)[c(1:2,5:7)]/nrow(dat %>% filter(id != 'gala' & id != 'mafalda'))
+
 ssf.pop.mean<- ssf.pop %>% 
   bind_cols() %>% 
-  rowMeans(., na.rm = TRUE)
+  apply(., 1, function(x)  weighted.mean(x, weights2, na.rm = TRUE))
+
+ssf.pop.mean_red<- ssf.pop %>%   #w/ removal of gala and mafalda
+  bind_cols() %>% 
+  dplyr::select(-c(gala, mafalda)) %>% 
+  apply(., 1, function(x)  weighted.mean(x, weights2_red, na.rm = TRUE))
 
 ssf.pop.var<- ssf.pop %>% 
   bind_cols() %>% 
   apply(., 1, var, na.rm = TRUE)
 
+ssf.pop.var_red<- ssf.pop %>% 
+  bind_cols() %>% 
+  dplyr::select(-c(gala, mafalda)) %>% 
+  apply(., 1, var, na.rm = TRUE)
+
+
 ssf.pop2<- cbind(ssfSurf$Fall$blanca[,c("x","y")], mu = ssf.pop.mean,
                     sig = ssf.pop.var)
 
+ssf.pop2_red<- cbind(ssfSurf$Fall$blanca[,c("x","y")], mu = ssf.pop.mean_red,
+                 sig = ssf.pop.var_red)
 
-## Selection (average)
+
+## Selection (average; all IDs)
 ggplot() +
   geom_raster(data = ssf.pop2, aes(x, y, fill = mu)) +
   geom_path(data = dat, aes(x, y, group = id), alpha = 0.75, color = "black") +
@@ -471,11 +496,31 @@ ggplot() +
 # ggsave("Giant Armadillo Habitat Selection_mean.png", width = 9, height = 5,
 #        units = "in", dpi = 300)
 
+## Selection (average; reduced IDs)
+ggplot() +
+  geom_raster(data = ssf.pop2_red, aes(x, y, fill = mu)) +
+  geom_path(data = dat, aes(x, y, group = id), alpha = 0.75, color = "black") +
+  scale_fill_viridis_c("Selection", option = "inferno",
+                       na.value = "transparent", limits = c(0,1)) +
+  scale_x_continuous(expand = c(0,0)) +
+  scale_y_continuous(expand = c(0,0)) +
+  labs(x="Easting", y="Northing", title = "Mean of Population") +
+  theme_bw() +
+  coord_equal() +
+  theme(legend.position = "bottom",
+        axis.title = element_text(size = 18),
+        axis.text = element_text(size = 10),
+        strip.text = element_text(size = 16, face = "bold"),
+        plot.title = element_text(size = 22),
+        legend.title = element_text(size = 14),
+        legend.text = element_text(size = 12)) +
+  guides(fill = guide_colourbar(barwidth = 30, barheight = 1))
 
-## Selection (variance)
+
+## Selection (variance; all IDs)
 ggplot() +
   geom_raster(data = ssf.pop2, aes(x, y, fill = sig)) +
-  geom_path(data = dat, aes(x, y, group = id), alpha = 0.75, color = "black") +
+  geom_path(data = dat, aes(x, y, group = id), alpha = 0.75, color = "chartreuse") +
   scale_fill_viridis_c("Selection", option = "viridis",
                        na.value = "transparent") +
   scale_x_continuous(expand = c(0,0)) +
@@ -494,6 +539,27 @@ ggplot() +
 
 # ggsave("Giant Armadillo Habitat Selection_var.png", width = 9, height = 5,
 #        units = "in", dpi = 300)
+
+
+## Selection (variance; reduced IDs)
+ggplot() +
+  geom_raster(data = ssf.pop2_red, aes(x, y, fill = sig)) +
+  geom_path(data = dat, aes(x, y, group = id), alpha = 0.75, color = "chartreuse") +
+  scale_fill_viridis_c("Selection", option = "viridis",
+                       na.value = "transparent") +
+  scale_x_continuous(expand = c(0,0)) +
+  scale_y_continuous(expand = c(0,0)) +
+  labs(x="Easting", y="Northing", title = "Variance of Population") +
+  theme_bw() +
+  coord_equal() +
+  theme(legend.position = "bottom",
+        axis.title = element_text(size = 18),
+        axis.text = element_text(size = 10),
+        strip.text = element_text(size = 16, face = "bold"),
+        plot.title = element_text(size = 22),
+        legend.title = element_text(size = 14),
+        legend.text = element_text(size = 12)) +
+  guides(fill = guide_colourbar(barwidth = 30, barheight = 1))
 
 
 
@@ -525,4 +591,5 @@ ggplot() +
 
 ### Export summary results
 
-# write.csv(ssf.pop2, "Giant Armadillo SSF summary results.csv", row.names = F)
+# write.csv(ssf.pop2_red, "Giant Armadillo SSF summary results.csv", row.names = F)
+# write.csv(soma.betas, "SSF coeffs.csv", row.names = F)

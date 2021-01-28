@@ -8,16 +8,16 @@ library(raster)
 
 
 
-#### Create Predictive Surfaces (lulc, ndvi) ####
+#### Create Predictive Surfaces (greenness, wetness) ####
 setwd("~/Documents/Snail Kite Project/Data/R Scripts/acceleration")
 
-dat<- read.csv("Binned Armadillo Acceleration Data.csv", as.is = T)
-dat$date<- as_datetime(dat$date)
-
-# Filter out observations where coords are NA
-dat<- dat %>% 
-  filter(!is.na(x))
-
+dat<- read.csv('Giant Armadillo state estimates.csv', as.is = T)
+dat$date<- as_datetime(dat$date, tz = "UTC")
+dat<-  dat %>% 
+  rename(x = easting, y = northing) %>% 
+  mutate(across(c('z.map','z.post.thresh','z.post.max'), factor,
+                levels = c("Slow-Turn","Slow-Unif","Exploratory","Transit","Unclassified"))
+  )
 
 dat$month<- month.abb[month(dat$date)]
 dat$month<- factor(dat$month, levels = month.abb[c(5:12,1)])
@@ -41,15 +41,16 @@ path$date<- as_datetime(path$date)
 path<- path[path$dt >= 5 & path$dt <= 9 & !is.na(path$dt),]
 
 
-# Remove state col and rows where is.na(NDWI)
+# Remove state col and rows where is.na(greenness)
 path<- path %>% 
-  dplyr::select(-state) %>% 
-  filter(!is.na(ndwi))
+  # dplyr::select(-state) %>% 
+  filter(!is.na(green))
 
 
 # Center and scale covariates 
-path$ndwi<- as.numeric(scale(path$ndwi, center = TRUE, scale = TRUE))
-
+# path$ndwi<- as.numeric(scale(path$ndwi, center = TRUE, scale = TRUE))
+path<- path %>% 
+  mutate(across(elev:wet, scale))
 
 
 
@@ -69,38 +70,45 @@ betas<- dat.summ$mean
 
 #Need to center and scale raster values so comparable to beta coeffs
 
-#Load env raster data
-lulc<- raster('cheiann_UTM1.tif')
-names(lulc)<- "lulc"
-# lulc<- as.factor(lulc)
+setwd("~/Documents/Snail Kite Project/Data/R Scripts/acceleration")
 
-#crop raster to limit spatial extrapolation
-lulc<- crop(lulc, extent(dat %>% 
-                           summarize(xmin = min(x) - 5000,
-                                     xmax = max(x) + 5000,
-                                     ymin = min(y) - 5000,
-                                     ymax = max(y) + 5000) %>% 
-                           unlist()))
+#Tasseled Cap Greenness
+green<- brick('GiantArm_tcgreen_season.grd')
+green.df<- as.data.frame(green, xy = T)
+green.df2<- pivot_longer(green.df, cols = -c(x,y), names_to = "season", values_to = "green")
+green.df2$season<- factor(green.df2$season, levels = names(green))
 
-files<- list.files(getwd(), pattern = "*.grd$")
-ndwi.filenames<- files[grep("ndwi", files)]
-ndwi<- brick(ndwi.filenames[2])
 
-#change extent and dimensions of RasterBricks using resample()
-ndwi<- resample(ndwi, lulc, method = "bilinear")
-compareRaster(lulc, ndwi)
+#Tasseled Cap Wetness
+wet<- brick('GiantArm_tcwet_season.grd')
+compareRaster(green, wet)
 
+wet.df<- as.data.frame(wet, xy = T)
+wet.df2<- pivot_longer(wet.df, cols = -c(x,y), names_to = "season", values_to = "wet")
+wet.df2$season<- factor(wet.df2$season, levels = names(wet))
+
+
+#Elevation
+# dem<- raster('giantarm_dem.tif')
+# names(dem)<- 'elev'
+# dem<- resample(dem, green, method = "bilinear")
+# compareRaster(green, dem)
+# dem.df<- as.data.frame(dem, xy = TRUE)
+
+
+
+setwd("~/Documents/Snail Kite Project/Data/R Scripts/ValleLabUF/resist_avg")
 
 
 ##Perform raster math using beta coeffs
 
 #Make predictions using posterior mean of betas
-ind<- c("ndwi","X1", "X2", "X3", "X4")
+ind<- c("green", "wet")
 xmat<- data.matrix(path[,ind])
 
-x<- factor(getValues(lulc))
-lulc.mat<- model.matrix.lm(~x + 0, na.action = "na.pass")
-colnames(lulc.mat)<- ind[2:5]
+# x<- factor(getValues(lulc))
+# lulc.mat<- model.matrix.lm(~x + 0, na.action = "na.pass")
+# colnames(lulc.mat)<- ind[2:5]
 
 
 
@@ -111,17 +119,19 @@ colnames(lulc.mat)<- ind[2:5]
 resist.dyn<- list()
 id1<- unique(dat.summ$id)
 
-for (j in 1:nlayers(ndwi)) {
-  print(names(ndwi)[j])
+for (j in 1:nlayers(green)) {
+  print(names(green)[j])
   
   tmp<- list()
   
-  cov.mat<- cbind(ndwi = scale(values(ndwi[[j]]), center = T, scale = T), lulc.mat)
+  cov.mat<- cbind(#elev = scale(values(dem)),
+                  green = scale(values(green[[j]])),
+                  wet = scale(values(wet[[j]])))
   
   for (i in 1:length(id1)) {
     print(i)
     
-    resistSurf<- lulc
+    resistSurf<- green[[1]]
     raster::values(resistSurf)<- exp(cov.mat %*% dat.summ[which(dat.summ$id == id1[i]), "mean"])
     # resistSurf<- resistSurf * 60  #convert from min to sec
     
@@ -135,7 +145,7 @@ for (j in 1:nlayers(ndwi)) {
   
   names(tmp)<- names(sort(table(path$id), decreasing = TRUE))
   resist.dyn[[j]]<- tmp
-  names(resist.dyn)[j]<- names(ndwi)[j]
+  names(resist.dyn)[j]<- names(green)[j]
 }
 
 
@@ -148,6 +158,7 @@ for (j in 1:nlayers(ndwi)) {
 
 resist.dyn.df<- map(resist.dyn, ~bind_rows(., .id = "id")) %>% 
   bind_rows(., .id = "season")
+resist.dyn.df$season<- factor(resist.dyn.df$season, levels = names(green))
 
 
 ## By ID and season
@@ -155,7 +166,7 @@ ggplot() +
   geom_raster(data = resist.dyn.df, aes(x, y, fill = time)) +
   geom_path(data = dat, aes(x, y, group = id), alpha = 0.5, color = "chartreuse") +
   scale_fill_viridis_c("Time Spent\nper Cell (min)", option = "inferno",
-                       na.value = "transparent") +
+                       na.value = "transparent", limits = c(0,15)) +
   scale_x_continuous(expand = c(0,0)) +
   scale_y_continuous(expand = c(0,0)) +
   labs(x="Easting", y="Northing", title = "Resistance Surface") +
@@ -178,24 +189,29 @@ ggplot() +
 tmp<- bayesmove::df_to_list(dat, "id") %>% 
   purrr::map(., . %>% 
                dplyr::select(season) %>% 
-               unique() %>% 
+               # unique() %>% 
                unlist())
 
-#calculate mean resistance across seasons
+weights<- tmp %>% 
+  map(., ~{table(.x)/length(.x)}) %>% 
+  map(., ~{.x[.x !=0]})
+
+
+#calculate weighted mean resistance across seasons (by N per season)
 resist.mean.id<- resist.dyn.df %>% 
   bayesmove::df_to_list(., "id") %>% 
   map2(., tmp, ~{.x %>% 
-      filter(season %in% .y)}) %>% 
+      filter(season %in% unique(.y))}) %>% 
   map(., bayesmove::df_to_list, "season") %>% 
   map_depth(., 2, pluck, "time")
 
 resist.mean.id2<- resist.mean.id %>% 
   map(., bind_cols) %>% 
-  map(., rowMeans, na.rm = TRUE) %>% 
+  map2(., weights, ~apply(.x, 1, function(x) weighted.mean(x, .y, na.rm = TRUE))) %>% 
   unlist()
 
 resist.mean.id3<- cbind(resist.dyn$Fall$gala[,c("x","y")], time = resist.mean.id2) %>% 
-  mutate(id = rep(names(resist.mean.id), each = ncell(ndwi)), .before = "x")
+  mutate(id = rep(names(resist.mean.id), each = ncell(green)), .before = "x")
 # resist.mean.id3$id<- factor(resist.mean.id3$id, levels = names(resist.mean.id))
 
 
@@ -205,7 +221,7 @@ ggplot() +
   geom_raster(data = resist.mean.id3, aes(x, y, fill = time)) +
   geom_path(data = dat, aes(x, y, group = id), alpha = 0.5, color = "chartreuse") +
   scale_fill_viridis_c("Time Spent\nper Cell (min)", option = "inferno",
-                       na.value = "transparent") +
+                       na.value = "transparent", limits = c(0,10)) +
   scale_x_continuous(expand = c(0,0)) +
   scale_y_continuous(expand = c(0,0)) +
   labs(x="Easting", y="Northing", title = "Resistance Surface") +
@@ -227,14 +243,17 @@ ggplot() +
 
 
 
-#calculate mean and variance across IDs
+#calculate weighted mean and variance across IDs (weighted by N for each ID)
 resist.pop<- resist.mean.id3 %>% 
   bayesmove::df_to_list(., "id") %>% 
   map_depth(., 1, pluck, "time")
 
+weights2<- table(dat$id)/nrow(dat)
+weights2<- weights2[c(1,3,5,4,2,7,6)]  #reorder to match column order of resist.pop
+
 resist.pop.mean<- resist.pop %>% 
   bind_cols() %>% 
-  rowMeans(., na.rm = TRUE)
+  apply(., 1, function(x)  weighted.mean(x, weights2, na.rm = TRUE))
 
 resist.pop.var<- resist.pop %>% 
   bind_cols() %>% 
@@ -250,7 +269,7 @@ ggplot() +
   geom_raster(data = resist.pop2, aes(x, y, fill = mu)) +
   geom_path(data = dat, aes(x, y, group = id), alpha = 0.5, color = "chartreuse") +
   scale_fill_viridis_c("Time Spent\nper Cell (min)", option = "inferno",
-                       na.value = "transparent") +
+                       na.value = "transparent", limits = c(0,10)) +
   scale_x_continuous(expand = c(0,0)) +
   scale_y_continuous(expand = c(0,0)) +
   labs(x="Easting", y="Northing", title = "Mean of Population") +
@@ -274,7 +293,7 @@ ggplot() +
   geom_raster(data = resist.pop2, aes(x, y, fill = sig)) +
   geom_path(data = dat, aes(x, y, group = id), alpha = 0.5, color = "chartreuse") +
   scale_fill_viridis_c("Time Spent\nper Cell (min)", option = "viridis",
-                       na.value = "transparent") +
+                       na.value = "transparent", limits = c(0,50)) +
   scale_x_continuous(expand = c(0,0)) +
   scale_y_continuous(expand = c(0,0)) +
   labs(x="Easting", y="Northing", title = "Variance of Population") +
@@ -294,32 +313,7 @@ ggplot() +
 
 
 
-
-## LU/LC map for reference
-lulc.df<- resist.mean.id3 %>% 
-  rename(lulc = time)
-lulc.df$lulc<- raster::values(lulc)
-
-ggplot() +
-  geom_raster(data = lulc.df, aes(x, y, fill = factor(lulc))) +
-  scale_fill_manual("", values = c("darkgreen","burlywood4","darkolivegreen3","lightskyblue1"),
-                    na.value = "transparent",
-                    labels = c("Forest", "Closed Savanna", "Open Savanna", "Floodable","")) +
-  scale_x_continuous(expand = c(0,0)) +
-  scale_y_continuous(expand = c(0,0)) +
-  labs(x="Easting", y="Northing", title = "Pantanal Land Cover") +
-  theme_bw() +
-  coord_equal() +
-  theme(legend.position = "right",
-        axis.title = element_text(size = 18),
-        axis.text = element_text(size = 10),
-        strip.text = element_text(size = 16, face = "bold"),
-        plot.title = element_text(size = 22),
-        legend.title = element_text(size = 14),
-        legend.text = element_text(size = 12))
-
-# ggsave("Giant Armadillo LULC.png", width = 6, height = 4, units = "in", dpi = 300)
-
+### Export results
 
 
 # write.csv(resist.pop2, "Giant Armadillo Resistance summary results.csv", row.names = F)
