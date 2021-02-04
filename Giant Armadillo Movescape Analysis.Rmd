@@ -29,9 +29,9 @@ Studies have been conducted on the habitat selection of giant armadillos in the 
 
 GPS tracks were available for 7 individuals (blanca, emanuel, gala, mafalda, mazeboti, sara, tex) sampled at 7 min intervals for varying durations from 2019 – 2020. A sample size of N = 9,948 total observations were analyzed from all 7 IDs (the same dataset used for the estimation of behavioral states).\newline
 
-To estimate habitat selection in these armadillos, I fitted a step-selection function (SSF) using the Tasseled Cap Transformations of greenness and wetness to match the covariates used in the comparisons of behavioral states. Greenness is a  measure of vegetation productivity (similar to NDVI), whereas wetness is a measure of moisture (similar to NDWI). Land use/land cover (LU/LC) was not included since the 'Floodable' class would be somewhat redundant with wetness. Additionally, the use of dynamic, continuous variables would be able to account for more nuanced measures of habitat selection and resistance. SSFs were fit separately by ID to account for different functional responses. Greenness and wetness were aggregated into seasonal estimates, which provided a way to account for the dynamic change in wet vs dry areas over time as well as primary productivity. For the SSF, I sampled 30 control points (i.e., available points) for each case point (i.e., used point). Greenness and wetness were extracted from the associated seasonal raster in which the relocation was sampled. Habitat selection surfaces were calculated across seasons within each animal ID. To reduce the dimensionality of the dataset and derive a popoulation-level estimate of habitat selection, weighted means were calculated across seasons (within each ID) and then weighted means were calculated across IDs. The number of observations per season and ID were used as weights. Additionally, variance was calculated among individual-level estimates of habitat selection.\newline
+To estimate habitat selection in these armadillos, I fitted a step-selection function (SSF) using the Tasseled Cap Transformations of greenness and wetness to match the covariates used in the comparisons of behavioral states. Greenness is a  measure of vegetation productivity (similar to NDVI), whereas wetness is a measure of moisture (similar to NDWI). Land use/land cover (LU/LC) was not included since the 'Floodable' class would be somewhat redundant with wetness. Additionally, the use of dynamic, continuous variables would be able to account for more nuanced measures of habitat selection and resistance. SSFs were fit separately by ID to account for different functional responses. Greenness and wetness were aggregated into seasonal estimates, which provided a way to account for the dynamic change in wet vs dry areas over time as well as primary productivity. For the SSF, I sampled 30 control points (i.e., available points) for each case point (i.e., used point). Greenness and wetness were extracted from the associated seasonal raster in which the relocation was sampled. Habitat selection surfaces were calculated across individuals to generate seasonal estimates of habitat selection at a population level.\newline
 
-The velocity-based resistance model was estimated where time spent per pixel is a function of each of the covariates included within the SSF (greenness, wetness). Separate models were fit by ID to assess individual heterogeneity (i.e., differences in functional responses). Similar to the steps taken for the SSF, estimates were aggregated across seasons (within IDs) via weighted means. To calculate a population-level estimate of the movescape, a weighted mean resistance surface and its variance were calculated across all IDs.\newline
+The velocity-based resistance model was estimated where time spent per pixel is a function of each of the covariates included within the SSF (greenness, wetness). Separate models were fit by ID to assess individual heterogeneity (i.e., differences in functional responses). Similar to the steps taken for the SSF, estimates were aggregated across individuals to generate population-level predictions of resistance per season.\newline
 
 Given the estimates of habitat selection and time spent per pixel, we explored the movescape in two different ways: 1) by visualizing the metrics plotted on top of one another using different color ramps and 2) by classifying pixels into different categories. When visualizing a scatterplot of the values of habitat selection against time spent per pixel, this could be broken into quadrants where each quadrant represents a different category of movement. These categories were classified as:
 
@@ -57,6 +57,9 @@ library(survival)
 library(amt)
 library(fishualize)
 library(ggnewscale)
+library(cowplot)
+
+set.seed(2021)
 
 
 setwd("~/Documents/Snail Kite Project/Data/R Scripts/acceleration")
@@ -181,7 +184,7 @@ ggplot(data=soma.betas, aes(x=coef.names, y=coef, ymin=lower, ymax=upper, color 
 ```
 
 
-Spatiotemporal predictions of habitat selection are do appear to exhibit notable differences across seasons within IDs. At an individual-level, blanca and emanuel did not exhibit strong preference or avoidance of any regions of the landscape. However, gala and mafalda both displayed greater preference for wetter and forested habitats. This may be due to the timing of recorded observations which were almost entirely during the wet season (Fall/Winter). The functional responses of the remaining IDs  (mazeboti, sara, tex) appeared to be opposite to that of gala and mafalda. These 3 IDs were recorded in either only the dry season (sara) or in both the wet and dry seasons (mazeboti, tex). Therefore, it appears likely that the responses exhibited by all IDs besides gala and mafalda are more reflective of habitat selection given the different seasons of available data. Although, the population mean estimate of habitat selection does not appear to show strong preference or avoidance of any habitats, the removal of the two possible outliers (gala and mafalda) produces a slightly more heterogeneous surface of habitat preference and avoidance. The variance in spatial predictions are also substantially lower when gala and mafalda are removed from the population-level estimate. For purposes of this report, the estimates associated with the reduced dataset (omission of gala and mafalda from population mean) will be used.
+Spatiotemporal predictions of habitat selection appear to show notable differences across seasons within IDs. At an individual-level, blanca and emanuel did not exhibit strong preference or avoidance of any regions of the landscape. However, gala and mafalda both displayed greater preference for wetter and forested habitats. This may be due to the timing of recorded observations which were almost entirely during the wet season (Fall/Winter). The functional responses of the remaining IDs (mazeboti, sara, tex) appeared to be opposite to that of gala and mafalda. These 3 IDs were recorded in either only the dry season (sara) or in both the wet and dry seasons (mazeboti, tex). Therefore, it appears likely that the responses exhibited by all IDs besides gala and mafalda are more reflective of habitat selection given the different seasons of available data. Therefore, gala and mafalda were removed before calculating population-level averages of habitat selection for each season. These seasonal estimates display the overall negative relationship with wetter habitats and the seasonal dynamics of water across the landscape. No strong patterns associated with greenness are observed, which matches with the coefficient estimates for most individuals.
 
 ```{r sample_pts_ssf}
 # Modify data into format readable by 'amt'
@@ -312,38 +315,28 @@ ggplot() +
 
 
 ```{r agg_by_id}
-tmp<- bayesmove::df_to_list(dat, "id") %>% 
-  purrr::map(., . %>% 
-               dplyr::select(season) %>% 
-               # unique() %>% 
-               unlist())
 
-weights<- tmp %>% 
-  map(., ~{table(.x)/length(.x)}) %>% 
-  map(., ~{.x[.x !=0]})
-
-
-#calculate mean resistance across seasons
+#calculate mean resistance across IDs
 ssf.mean.id<- ssfSurf.df %>% 
-  bayesmove::df_to_list(., "id") %>% 
-  map2(., tmp, ~{.x %>% 
-         filter(season %in% unique(.y))}) %>% 
-  map(., bayesmove::df_to_list, "season") %>% 
+  bayesmove::df_to_list(., "season") %>% 
+  map(., bayesmove::df_to_list, "id") %>% 
   map_depth(., 2, pluck, "sel")
 
 ssf.mean.id2<- ssf.mean.id %>% 
   map(., bind_cols) %>% 
-  map2(., weights, ~apply(.x, 1, function(x) weighted.mean(x, .y, na.rm = TRUE))) %>% 
+  map(., dplyr::select, -c(gala, mafalda)) %>%   #omit gala and mafalda
+  map(., rowMeans, na.rm = T) %>% 
   unlist()
 
 ssf.mean.id3<- cbind(ssfSurf$Fall$blanca[,c("x","y")], sel = ssf.mean.id2) %>% 
-  mutate(id = rep(names(ssf.mean.id), each = ncell(green)), .before = "x")
+  mutate(season = rep(names(ssf.mean.id), each = ncell(green)), .before = "x") %>% 
+  mutate(across(season, factor, levels = names(ssf.mean.id)))
 ```
 
 
 ```{r map_ssf_ID, fig.width=8, fig.height=6, fig.cap="Aggregated estimates of habitat selection across seasons for each ID."}
 
-## Mean across seasons (where observations recorded)
+## Mean across IDs (where observations recorded)
 ggplot() +
   geom_raster(data = ssf.mean.id3, aes(x, y, fill = sel)) +
   geom_path(data = dat, aes(x, y, group = id), alpha = 0.75, color = "chartreuse") +
@@ -354,139 +347,7 @@ ggplot() +
   labs(x="Easting", y="Northing", title = "Habitat Selection") +
   theme_bw() +
   coord_equal() +
-  facet_wrap( ~ id, nrow = 1) +
-  theme(legend.position = "bottom",
-        axis.title = element_text(size = 18),
-        axis.text = element_text(size = 10),
-        strip.text = element_text(size = 16, face = "bold"),
-        plot.title = element_text(size = 22),
-        legend.title = element_text(size = 14),
-        legend.text = element_text(size = 12)) +
-  guides(fill = guide_colourbar(barwidth = 30, barheight = 1))
-```
-
-
-```{r calc_pop_est}
-#calculate mean and variance across IDs
-ssf.pop<- ssf.mean.id3 %>% 
-  bayesmove::df_to_list(., "id") %>% 
-  map_depth(., 1, pluck, "sel")
-
-weights2<- table(dat$id)/nrow(dat)  #don't need to reorder for this script
-weights2_red<- table(dat$id)[c(1:2,5:7)]/nrow(dat %>% filter(id != 'gala' & id != 'mafalda'))
-
-ssf.pop.mean<- ssf.pop %>% 
-  bind_cols() %>% 
-  apply(., 1, function(x)  weighted.mean(x, weights2, na.rm = TRUE))
-
-ssf.pop.mean_red<- ssf.pop %>%   #w/ removal of gala and mafalda
-  bind_cols() %>% 
-  dplyr::select(-c(gala, mafalda)) %>% 
-  apply(., 1, function(x)  weighted.mean(x, weights2_red, na.rm = TRUE))
-
-ssf.pop.var<- ssf.pop %>% 
-  bind_cols() %>% 
-  apply(., 1, var, na.rm = TRUE)
-
-ssf.pop.var_red<- ssf.pop %>% 
-  bind_cols() %>% 
-  dplyr::select(-c(gala, mafalda)) %>% 
-  apply(., 1, var, na.rm = TRUE)
-
-
-ssf.pop2<- cbind(ssfSurf$Fall$blanca[,c("x","y")], mu = ssf.pop.mean,
-                    sig = ssf.pop.var)
-
-ssf.pop2_red<- cbind(ssfSurf$Fall$blanca[,c("x","y")], mu = ssf.pop.mean_red,
-                 sig = ssf.pop.var_red)
-```
-
-
-\pagebreak
-Below are the mean and variance of habitat selection associated with all 7 armadillos.
-
-```{r map_ssf_pop_full, fig.width=8, fig.height=6, fig.cap="Population-level estimates of the mean and variance of habitat selection based on all analyzed individuals."}
-
-## Selection (average; all IDs)
-ggplot() +
-  geom_raster(data = ssf.pop2, aes(x, y, fill = mu)) +
-  geom_path(data = dat, aes(x, y, group = id), alpha = 0.75, color = "black") +
-  scale_fill_viridis_c("Selection", option = "inferno",
-                       na.value = "transparent", limits = c(0,1)) +
-  scale_x_continuous(expand = c(0,0)) +
-  scale_y_continuous(expand = c(0,0)) +
-  labs(x="Easting", y="Northing", title = "Mean of Population") +
-  theme_bw() +
-  coord_equal() +
-  theme(legend.position = "bottom",
-        axis.title = element_text(size = 18),
-        axis.text = element_text(size = 10),
-        strip.text = element_text(size = 16, face = "bold"),
-        plot.title = element_text(size = 22),
-        legend.title = element_text(size = 14),
-        legend.text = element_text(size = 12)) +
-  guides(fill = guide_colourbar(barwidth = 30, barheight = 1))
-
-
-## Selection (variance; all IDs)
-ggplot() +
-  geom_raster(data = ssf.pop2, aes(x, y, fill = sig)) +
-  geom_path(data = dat, aes(x, y, group = id), alpha = 0.75, color = "chartreuse") +
-  scale_fill_viridis_c("Selection", option = "viridis",
-                       na.value = "transparent") +
-  scale_x_continuous(expand = c(0,0)) +
-  scale_y_continuous(expand = c(0,0)) +
-  labs(x="Easting", y="Northing", title = "Variance of Population") +
-  theme_bw() +
-  coord_equal() +
-  theme(legend.position = "bottom",
-        axis.title = element_text(size = 18),
-        axis.text = element_text(size = 10),
-        strip.text = element_text(size = 16, face = "bold"),
-        plot.title = element_text(size = 22),
-        legend.title = element_text(size = 14),
-        legend.text = element_text(size = 12)) +
-  guides(fill = guide_colourbar(barwidth = 30, barheight = 1))
-```
-
-
-\pagebreak
-Below are the mean and variance of habitat selection associated with the reduced set of estimates from only 5 armadillos (excluding gala and mafalda).
-
-```{r map_ssf_pop_red, fig.width=8, fig.height=6, fig.cap="Population-level estimates of the mean and variance of habitat selection based on 5 of the 7 analyzed individuals."}
-
-## Selection (average; reduced IDs)
-ggplot() +
-  geom_raster(data = ssf.pop2_red, aes(x, y, fill = mu)) +
-  geom_path(data = dat, aes(x, y, group = id), alpha = 0.75, color = "black") +
-  scale_fill_viridis_c("Selection", option = "inferno",
-                       na.value = "transparent", limits = c(0,1)) +
-  scale_x_continuous(expand = c(0,0)) +
-  scale_y_continuous(expand = c(0,0)) +
-  labs(x="Easting", y="Northing", title = "Mean of Population") +
-  theme_bw() +
-  coord_equal() +
-  theme(legend.position = "bottom",
-        axis.title = element_text(size = 18),
-        axis.text = element_text(size = 10),
-        strip.text = element_text(size = 16, face = "bold"),
-        plot.title = element_text(size = 22),
-        legend.title = element_text(size = 14),
-        legend.text = element_text(size = 12)) +
-  guides(fill = guide_colourbar(barwidth = 30, barheight = 1))
-
-
-## Selection (variance; reduced IDs)
-ggplot() +
-  geom_raster(data = ssf.pop2_red, aes(x, y, fill = sig)) +
-  geom_path(data = dat, aes(x, y, group = id), alpha = 0.75, color = "chartreuse") +
-  scale_fill_viridis_c("Selection", option = "viridis",
-                       na.value = "transparent") +
-  scale_x_continuous(expand = c(0,0)) +
-  scale_y_continuous(expand = c(0,0)) +
-  labs(x="Easting", y="Northing", title = "Variance of Population") +
-  theme_bw() +
-  coord_equal() +
+  facet_wrap( ~ season, nrow = 2) +
   theme(legend.position = "bottom",
         axis.title = element_text(size = 18),
         axis.text = element_text(size = 10),
@@ -502,7 +363,7 @@ ggplot() +
 
 Compared to the estimated coefficients from the SSF, responses to greenness and wetness were much more consistent when modeling time in the landscape resistance model. Most individuals exhibited the same type of response for both greenness and wetness, although there were a few instances were other individuals displayed the opposite relationship. The magnitude of these relationships was largely variable among individuals, however.\newline
 
-Plots of resistance for each ID across seasons showed very high levels of variation for blanca and mafalda compared to the other individuals, particularly during the wet season (Fall/Winter). There also appeared to be notable dynamic changes in resistance estimates across seasons. When aggregated across seasons within each ID, blanca and mafalda still appeared to be largely affected by the estimates during the wet season while prediction surfaces for the remaining IDs varied from < 1 min to 2 min per pixel. The population mean exhibited much of the lower time estimates per pixel as the majority of IDs displayed, but the seemingly wettest areas had much higher estimates of resistance (~ 5-fold or more). The lowest resistance appeared to occur in forested areas and areas deemed floodable.
+Plots of resistance for each ID across seasons showed very high levels of variation for blanca and mafalda compared to the other individuals, particularly during the wet season (Fall/Winter). The range in estimates of time per pixel was also much higher in these two individuals compared to the other armadillos. Differences in the range of estimates are denoted by the separate legends for each ID. Similar to the results of the SSF, there appeared to be notable dynamic changes in resistance estimates across seasons, but the direction of this shift varied among IDs. Although the ranges in blanca and mafalda were much higher than the other five individuals, they were included in the population-level averages for each season since their removal resulted in homogeneous predictive surfaces. This is due to the opposite responses to greenness and wetness by the remaining IDs. To resolve some of these potential issues with opposite responses to covariates, our next step to run another model that uses random effects for the intercept and slopes for each ID, which should constrain some of this variability across the population.
 
 
 ```{r load_data_resist}
@@ -603,70 +464,204 @@ resist.dyn.df$season<- factor(resist.dyn.df$season, levels = names(green))
 ```
 
 
-```{r map_resist_IDxSeason, fig.width=10, fig.height=8, fig.cap="Estimates of resistance (time per pixel) are predicted for each individual and season."}
+```{r map_resist_IDxSeason, fig.width=7, fig.height=14, fig.cap="Estimates of resistance (time per pixel) are predicted for each individual and season."}
 
 ## By ID and season
-ggplot() +
-  geom_raster(data = resist.dyn.df, aes(x, y, fill = time)) +
-  geom_path(data = dat, aes(x, y, group = id), alpha = 0.5, color = "chartreuse") +
+p.blanca<- ggplot() +
+  geom_raster(data = resist.dyn.df %>% filter(id == "blanca"),
+              aes(x, y, fill = time)) +
+  geom_path(data = dat %>% filter(id == "blanca"),
+            aes(x, y, group = id), alpha = 0.5, color = "chartreuse") +
   scale_fill_viridis_c("Time Spent\nper Cell (min)", option = "inferno",
-                       na.value = "transparent", limits = c(0,15)) +
+                       na.value = "transparent", limits = c(0,10)) +
   scale_x_continuous(expand = c(0,0)) +
   scale_y_continuous(expand = c(0,0)) +
-  labs(x="Easting", y="Northing", title = "Resistance Surface") +
+  labs(x="Easting", y="Northing") +
   theme_bw() +
   coord_equal() +
-  theme(legend.position = "bottom",
+  theme(legend.position = "right",
         axis.title = element_text(size = 18),
         axis.text = element_text(size = 10),
         strip.text = element_text(size = 16, face = "bold"),
         plot.title = element_text(size = 22),
         legend.title = element_text(size = 14),
         legend.text = element_text(size = 12)) +
-  guides(fill = guide_colourbar(barwidth = 30, barheight = 1)) +
-  facet_grid(season ~ id)
+  facet_grid(id ~ season)
+
+
+
+p.emanuel<- ggplot() +
+  geom_raster(data = resist.dyn.df %>% filter(id == "emanuel"),
+              aes(x, y, fill = time)) +
+  geom_path(data = dat %>% filter(id == "emanuel"),
+            aes(x, y, group = id), alpha = 0.5, color = "chartreuse") +
+  scale_fill_viridis_c("Time Spent\nper Cell (min)", option = "inferno",
+                       na.value = "transparent") +
+  scale_x_continuous(expand = c(0,0)) +
+  scale_y_continuous(expand = c(0,0)) +
+  labs(x="Easting", y="Northing") +
+  theme_bw() +
+  coord_equal() +
+  theme(legend.position = "right",
+        axis.title = element_text(size = 18),
+        axis.text = element_text(size = 10),
+        strip.text = element_text(size = 16, face = "bold"),
+        plot.title = element_text(size = 22),
+        legend.title = element_text(size = 14),
+        legend.text = element_text(size = 12)) +
+  facet_grid(id ~ season)
+
+
+
+p.gala<- ggplot() +
+  geom_raster(data = resist.dyn.df %>% filter(id == "gala"),
+              aes(x, y, fill = time)) +
+  geom_path(data = dat %>% filter(id == "gala"),
+            aes(x, y, group = id), alpha = 0.5, color = "chartreuse") +
+  scale_fill_viridis_c("Time Spent\nper Cell (min)", option = "inferno",
+                       na.value = "transparent") +
+  scale_x_continuous(expand = c(0,0)) +
+  scale_y_continuous(expand = c(0,0)) +
+  labs(x="Easting", y="Northing") +
+  theme_bw() +
+  coord_equal() +
+  theme(legend.position = "right",
+        axis.title = element_text(size = 18),
+        axis.text = element_text(size = 10),
+        strip.text = element_text(size = 16, face = "bold"),
+        plot.title = element_text(size = 22),
+        legend.title = element_text(size = 14),
+        legend.text = element_text(size = 12)) +
+  facet_grid(id ~ season)
+
+
+
+p.mafalda<- ggplot() +
+  geom_raster(data = resist.dyn.df %>% filter(id == "mafalda"),
+              aes(x, y, fill = time)) +
+  geom_path(data = dat %>% filter(id == "mafalda"),
+            aes(x, y, group = id), alpha = 0.5, color = "chartreuse") +
+  scale_fill_viridis_c("Time Spent\nper Cell (min)", option = "inferno",
+                       na.value = "transparent", limits = c(0,10)) +
+  scale_x_continuous(expand = c(0,0)) +
+  scale_y_continuous(expand = c(0,0)) +
+  labs(x="Easting", y="Northing") +
+  theme_bw() +
+  coord_equal() +
+  theme(legend.position = "right",
+        axis.title = element_text(size = 18),
+        axis.text = element_text(size = 10),
+        strip.text = element_text(size = 16, face = "bold"),
+        plot.title = element_text(size = 22),
+        legend.title = element_text(size = 14),
+        legend.text = element_text(size = 12)) +
+  facet_grid(id ~ season)
+
+
+
+p.mazeboti<- ggplot() +
+  geom_raster(data = resist.dyn.df %>% filter(id == "mazeboti"),
+              aes(x, y, fill = time)) +
+  geom_path(data = dat %>% filter(id == "mazeboti"),
+            aes(x, y, group = id), alpha = 0.5, color = "chartreuse") +
+  scale_fill_viridis_c("Time Spent\nper Cell (min)", option = "inferno",
+                       na.value = "transparent", limits = c(0,5)) +
+  scale_x_continuous(expand = c(0,0)) +
+  scale_y_continuous(expand = c(0,0)) +
+  labs(x="Easting", y="Northing") +
+  theme_bw() +
+  coord_equal() +
+  theme(legend.position = "right",
+        axis.title = element_text(size = 18),
+        axis.text = element_text(size = 10),
+        strip.text = element_text(size = 16, face = "bold"),
+        plot.title = element_text(size = 22),
+        legend.title = element_text(size = 14),
+        legend.text = element_text(size = 12)) +
+  facet_grid(id ~ season)
+
+
+
+p.sara<- ggplot() +
+  geom_raster(data = resist.dyn.df %>% filter(id == "sara"),
+              aes(x, y, fill = time)) +
+  geom_path(data = dat %>% filter(id == "sara"),
+            aes(x, y, group = id), alpha = 0.5, color = "chartreuse") +
+  scale_fill_viridis_c("Time Spent\nper Cell (min)", option = "inferno",
+                       na.value = "transparent") +
+  scale_x_continuous(expand = c(0,0)) +
+  scale_y_continuous(expand = c(0,0)) +
+  labs(x="Easting", y="Northing") +
+  theme_bw() +
+  coord_equal() +
+  theme(legend.position = "right",
+        axis.title = element_text(size = 18),
+        axis.text = element_text(size = 10),
+        strip.text = element_text(size = 16, face = "bold"),
+        plot.title = element_text(size = 22),
+        legend.title = element_text(size = 14),
+        legend.text = element_text(size = 12)) +
+  facet_grid(id ~ season)
+
+
+
+
+p.tex<- ggplot() +
+  geom_raster(data = resist.dyn.df %>% filter(id == "tex"),
+              aes(x, y, fill = time)) +
+  geom_path(data = dat %>% filter(id == "tex"),
+            aes(x, y, group = id), alpha = 0.5, color = "chartreuse") +
+  scale_fill_viridis_c("Time Spent\nper Cell (min)", option = "inferno",
+                       na.value = "transparent", limits = c(0,5)) +
+  scale_x_continuous(expand = c(0,0)) +
+  scale_y_continuous(expand = c(0,0)) +
+  labs(x="Easting", y="Northing") +
+  theme_bw() +
+  coord_equal() +
+  theme(legend.position = "right",
+        axis.title = element_text(size = 18),
+        axis.text = element_text(size = 10),
+        strip.text = element_text(size = 16, face = "bold"),
+        plot.title = element_text(size = 22),
+        legend.title = element_text(size = 14),
+        legend.text = element_text(size = 12)) +
+  facet_grid(id ~ season)
+
+
+## create composite plot where IDs have separate colorbars
+plot_grid(p.blanca, p.emanuel, p.gala, p.mafalda, p.mazeboti, p.sara, p.tex,
+          ncol = 1)
 ```
 
 
 ```{r resist_agg_ID}
 
-tmp<- bayesmove::df_to_list(dat, "id") %>% 
-  purrr::map(., . %>% 
-               dplyr::select(season) %>% 
-               # unique() %>% 
-               unlist())
-
-weights<- tmp %>% 
-  map(., ~{table(.x)/length(.x)}) %>% 
-  map(., ~{.x[.x !=0]})
-
-
-#calculate weighted mean resistance across seasons (by N per season)
+#calculate mean resistance across IDs
 resist.mean.id<- resist.dyn.df %>% 
-  bayesmove::df_to_list(., "id") %>% 
-  map2(., tmp, ~{.x %>% 
-      filter(season %in% unique(.y))}) %>% 
-  map(., bayesmove::df_to_list, "season") %>% 
+  bayesmove::df_to_list(., "season") %>% 
+  map(., bayesmove::df_to_list, "id") %>% 
   map_depth(., 2, pluck, "time")
 
 resist.mean.id2<- resist.mean.id %>% 
   map(., bind_cols) %>% 
-  map2(., weights, ~apply(.x, 1, function(x) weighted.mean(x, .y, na.rm = TRUE))) %>% 
+  # map(., dplyr::select, -c(blanca, mafalda)) %>%   #omit blanca and mafalda
+  map(., rowMeans, na.rm = T) %>% 
   unlist()
 
 resist.mean.id3<- cbind(resist.dyn$Fall$gala[,c("x","y")], time = resist.mean.id2) %>% 
-  mutate(id = rep(names(resist.mean.id), each = ncell(green)), .before = "x")
+  mutate(season = rep(names(resist.mean.id), each = ncell(green)), .before = "x") %>% 
+  mutate(across(season, factor, levels = names(resist.mean.id)))
 ```
 
 
-```{r map_resist_ID, fig.width=8, fig.height=6, fig.cap="Weighted average of resistance across seasons within each individual."}
+```{r map_resist_ID, fig.width=8, fig.height=6, fig.cap="Mean resistance across IDs per season."}
 
-## Mean across seasons
+## Mean across IDs
 ggplot() +
   geom_raster(data = resist.mean.id3, aes(x, y, fill = time)) +
   geom_path(data = dat, aes(x, y, group = id), alpha = 0.5, color = "chartreuse") +
   scale_fill_viridis_c("Time Spent\nper Cell (min)", option = "inferno",
-                       na.value = "transparent", limits = c(0,10)) +
+                       na.value = "transparent", limits = c(0,7)) +
   scale_x_continuous(expand = c(0,0)) +
   scale_y_continuous(expand = c(0,0)) +
   labs(x="Easting", y="Northing", title = "Resistance Surface") +
@@ -680,101 +675,27 @@ ggplot() +
         legend.title = element_text(size = 14),
         legend.text = element_text(size = 12)) +
   guides(fill = guide_colourbar(barwidth = 30, barheight = 1)) +
-  facet_wrap(~ id, nrow = 1)
+  facet_wrap(~ season, nrow = 2)
 
 ```
-
-
-```{r calc_resist_pop}
-
-#calculate weighted mean and variance across IDs (weighted by N for each ID)
-resist.pop<- resist.mean.id3 %>% 
-  bayesmove::df_to_list(., "id") %>% 
-  map_depth(., 1, pluck, "time")
-
-weights2<- table(dat$id)/nrow(dat)
-weights2<- weights2[c(1,3,5,4,2,7,6)]  #reorder to match column order of resist.pop
-
-resist.pop.mean<- resist.pop %>% 
-  bind_cols() %>% 
-  apply(., 1, function(x)  weighted.mean(x, weights2, na.rm = TRUE))
-
-resist.pop.var<- resist.pop %>% 
-  bind_cols() %>% 
-  apply(., 1, var, na.rm = TRUE)
-
-resist.pop2<- cbind(resist.dyn$Fall$gala[,c("x","y")], mu = resist.pop.mean,
-                    sig = resist.pop.var)
-```
-
-
-```{r map_resist_pop, fig.width=8, fig.height=6, fig.cap="Population mean and variance of resistance across all 7 IDs."}
-
-## Mean across IDs
-ggplot() +
-  geom_raster(data = resist.pop2, aes(x, y, fill = mu)) +
-  geom_path(data = dat, aes(x, y, group = id), alpha = 0.5, color = "chartreuse") +
-  scale_fill_viridis_c("Time Spent\nper Cell (min)", option = "inferno",
-                       na.value = "transparent", limits = c(0,10)) +
-  scale_x_continuous(expand = c(0,0)) +
-  scale_y_continuous(expand = c(0,0)) +
-  labs(x="Easting", y="Northing", title = "Mean of Population") +
-  theme_bw() +
-  coord_equal() +
-  theme(legend.position = "bottom",
-        axis.title = element_text(size = 18),
-        axis.text = element_text(size = 10),
-        strip.text = element_text(size = 16, face = "bold"),
-        plot.title = element_text(size = 22),
-        legend.title = element_text(size = 14),
-        legend.text = element_text(size = 12)) +
-  guides(fill = guide_colourbar(barwidth = 30, barheight = 1))
-
-
-## Variance across IDs
-ggplot() +
-  geom_raster(data = resist.pop2, aes(x, y, fill = sig)) +
-  geom_path(data = dat, aes(x, y, group = id), alpha = 0.5, color = "chartreuse") +
-  scale_fill_viridis_c("Time Spent\nper Cell (min)", option = "viridis",
-                       na.value = "transparent", limits = c(0,50)) +
-  scale_x_continuous(expand = c(0,0)) +
-  scale_y_continuous(expand = c(0,0)) +
-  labs(x="Easting", y="Northing", title = "Variance of Population") +
-  theme_bw() +
-  coord_equal() +
-  theme(legend.position = "bottom",
-        axis.title = element_text(size = 18),
-        axis.text = element_text(size = 10),
-        strip.text = element_text(size = 16, face = "bold"),
-        plot.title = element_text(size = 22),
-        legend.title = element_text(size = 14),
-        legend.text = element_text(size = 12)) +
-  guides(fill = guide_colourbar(barwidth = 30, barheight = 1))
-```
-
 
 
 ## Integration of speed and habitat selection for movescape
 
-Once estimates of armadillo speed and habitat selection were calculated, these were combined to make inference on the ‘movescape’. Due to the large number of points to plot into each of the quadrants, these are omitted from the report. However, these quadrants represent each of the four previously mentioned categories of functional connectivity classifications. From this set of quadrants, points (i.e., pixels) are re-classified based on the quadrant in which it falls and then mapped back onto the landscape. Alternatively, they were also plotted using two different monochromatic palettes that were blended together for a more nuanced interpretation.\newline
+Once estimates of armadillo speed and habitat selection were calculated, these were combined to make inference on the ‘movescape’. Due to the large number of points to plot into each of the quadrants, these are omitted from the report for now. However, these quadrants represent each of the four previously mentioned categories of functional connectivity classifications. From this set of quadrants, points (i.e., pixels) are re-classified based on the quadrant in which it falls and then mapped back onto the landscape. Alternatively, they were also plotted using two different monochromatic palettes that were blended together for a more nuanced interpretation.\newline
 
-Since the estimates for resistance were very right-skewed, the 99th quantile of time spent per pixel was used as a threshold to define the range of times on which to define the quadrant and classify each of the pixels.
+Since the estimates for resistance were very right-skewed, the 99.9^th^ quantile of time spent per pixel (1.5 min) was used as a threshold to define the range of times on which to define the quadrant and classify each of the pixels.
 
 
 ```{r load_movescape_results}
 
-ssf.pop2<- read.csv("Giant Armadillo SSF summary results.csv", as.is = T)
-resist.pop2<- read.csv("Giant Armadillo Resistance summary results.csv", as.is = T)
+dat.comp<- cbind(ssf.mean.id3, time = resist.mean.id3$time)
 
-
-dat.comp<- data.frame(sel = ssf.pop2$mu, res = resist.pop2$mu,
-                      green = raster::values(mean(green, na.rm = T)),
-                      wet = raster::values(mean(wet, na.rm = T)))
-
-quant_99.9<- quantile(dat.comp$res, 0.99)
+quant_99.9<- quantile(na.omit(dat.comp$time), 0.999)
 dat.comp2<- dat.comp %>% 
-  filter(res <= quant_99.9)
-time.mid<- (max(dat.comp2$res, na.rm = T) + min(dat.comp2$res, na.rm = T))/2
+  filter(time <= quant_99.9)
+time.mid<- (max(dat.comp2$time, na.rm = T) + min(dat.comp2$time, na.rm = T))/2
+
 ```
 
 
@@ -782,11 +703,11 @@ time.mid<- (max(dat.comp2$res, na.rm = T) + min(dat.comp2$res, na.rm = T))/2
 
 ## Using 2 continuous color scales
 ggplot() +
-  geom_raster(data = resist.pop2, aes(x, y, fill = mu), alpha = 0.75) +
+  geom_raster(data = dat.comp, aes(x, y, fill = time), alpha = 0.75) +
   scale_fill_gradient("Time Spent\nper Cell (min)", low = "white", high = "royalblue3",
-                       na.value = "transparent", limits = c(0,10)) +
+                       na.value = "transparent", limits = c(0,quant_99.9)) +
   new_scale_fill() +
-  geom_raster(data = ssf.pop2, aes(x, y, fill = mu), alpha = 0.75) +
+  geom_raster(data = dat.comp, aes(x, y, fill = sel), alpha = 0.75) +
   scale_fill_gradient("Selection", low = "red4", high = "white",
                        na.value = "transparent", limits = c(0,1)) +
   geom_path(data = dat, aes(x, y, group = id), alpha = 0.5, color = "black") +
@@ -801,15 +722,13 @@ ggplot() +
         strip.text = element_text(size = 16, face = "bold"),
         plot.title = element_text(size = 22),
         legend.title = element_text(size = 14),
-        legend.text = element_text(size = 12))
+        legend.text = element_text(size = 12))  +
+  facet_wrap(~ season)
 
 
 ## Creation of 4 classes
 
-all.dat<- cbind(resist.pop2[,-4], ssf.pop2$mu)
-names(all.dat)[3:4]<- c("time", "sel")
-
-all.dat<- all.dat %>% 
+all.dat<- dat.comp %>% 
   mutate(fun_class = case_when(.$time > time.mid & .$sel > 0.5 ~ "Slow-Preferred",
                                 .$time > time.mid & .$sel < 0.5 ~ "Slow-Avoided",
                                 .$time < time.mid & .$sel > 0.5 ~ "Fast-Preferred",
@@ -821,7 +740,7 @@ ggplot() +
   geom_raster(data = all.dat, aes(x, y, fill = fun_class), na.rm = T) +
   scale_fill_manual("", values = c("firebrick","forestgreen","yellow","steelblue1"),
                     na.translate = F) +
-  geom_path(data = dat, aes(x, y, group = id), alpha = 0.65, color = "black") +
+  geom_path(data = dat, aes(x, y, group = id), alpha = 0.85, color = "black") +
   scale_x_continuous(expand = c(0,0)) +
   scale_y_continuous(expand = c(0,0)) +
   labs(x="Easting", y="Northing") +
@@ -833,17 +752,18 @@ ggplot() +
         strip.text = element_text(size = 16, face = "bold"),
         plot.title = element_text(size = 22),
         legend.title = element_text(size = 14),
-        legend.text = element_text(size = 12))
+        legend.text = element_text(size = 12)) +
+  facet_wrap(~ season, nrow = 2)
 
 ```
 
 
-The movescape using the continuous color ramps appears a little more difficult to interpret, primarily because there is not a large range of values for habitat selection. Additionally, the right-skewed estimates of time spent per cell tends to only emphasize the areas that are much slower than the majority of estimates. The other map that classifies pixels into discrete groups is outwardly much easier to interpret, but should be interpreted cautiously since the thresholds for defining these categories was based on the lower 99% of the estimates for resistance ($t < 2.73$ min). From this discrete map, it appears that the wettest areas are classified as "Slow-Avoided" whereas other areas fringing these pixels or regions that are also relatively wet are classified as "Fast-Avoided". Most of the remaining regions with higher levels of greenness were classified as "Fast-Preferred", while few small pockets of areas were categorized as "Slow-Preferred". These classifications should be explored further and additional covariates may be added to both the SSF and resistance model as deemed necessary.
+The movescape using the continuous color ramps appears a little more difficult to interpret, primarily because there is not a large range of values estimated for habitat selection. Additionally, the right-skewed estimates of time spent per cell tends to only emphasize the areas that are much slower than the majority of estimates. The other map that classifies pixels into discrete groups is outwardly much easier to interpret, but should be interpreted cautiously since the thresholds for defining these categories was based on the lower 99.9% of estimates for resistance ($t < 1.51$ min). From this discrete map, it appears that the wettest areas are classified as "Slow-Avoided", which primarily occur along what appears to be a seasonal river running through the landscape. Nearby areas that may experience some seasonal flooding were classified as "Fast-Avoided". Most of the remaining regions with higher levels of greenness were classified as "Fast-Preferred", while few small pockets of areas were categorized as "Slow-Preferred". These classifications should be explored further and additional covariates may be added to both the SSF and resistance model as deemed necessary.
 
 
 # Discussion
 
-While these results do appear to provide a simple way to understand movements of giant armadillos, they would likely be improved by making some modifications in the methods to account for the relatively high level of individual heterogeneity when estimating the ‘movescape’ rather than taking a weighted average by sample size. This may involve fitting separate models per ID and season for SSFs and resistance estimates and using different spatial weighting procedures. This could potentially be performed similarly to methods applied in Osipova et al. (2019) and Zeller et al. (2019) where pixel values are weighted based on the geographic location of each ID. Additionally, the inclusion of a greater number of individuals sampled at other locations and seasons throughout the study region is also likely to improve the inferences made. The estimates of Tasseled Cap greenness and wetness could also potentially be improved by using Sentinel-2 satellite imagery as opposed to Landsat 8 since Sentinel-2 captures images at a 10m (vs a 30 m) spatial resolution and at a 5 day (vs a 16 day) resolution. This would result in fewer images with cloud cover that could be used to calculate seasonal band values, which would likely fill in the gaps in the estimates of summer greenness and wetness. These steps and others (e.g., multi-scale analyses) can be taken to improve these results to estimate dynamic landscape connectivity in giant armadillos.
+While these results do appear to provide a simple way to understand movements of giant armadillos, they would likely be improved by making some modifications in the methods to account for the relatively high level of individual heterogeneity when estimating the ‘movescape’. This may involve fitting using spatial weighting procedures to reduce spurious extrapolations of resistance and habitat selection to pixels never visited by any of the armadillos. This could potentially be performed similarly to methods applied in Osipova et al. (2019) and Zeller et al. (2019) where pixel values are weighted based on the geographic location of each ID. Additionally, the inclusion of a greater number of individuals sampled at other locations and seasons throughout the study region is also likely to improve the inferences made. The estimates of Tasseled Cap greenness and wetness could also potentially be improved by using Sentinel-2 satellite imagery as opposed to Landsat 8 since Sentinel-2 captures images at a 10m (vs a 30 m) spatial resolution and at a 5 day (vs a 16 day) resolution. This would result in fewer images with cloud cover that could be used to calculate seasonal band values, which would likely fill in the gaps in the estimates of summer greenness and wetness. These steps and others (e.g., multi-scale analyses) can be taken to improve these results to estimate dynamic landscape connectivity in giant armadillos.
 
 
 # References
