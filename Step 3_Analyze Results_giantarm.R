@@ -57,15 +57,12 @@ path<- path %>%
 
 #Load model results
 dat.summ<- read.csv("Giant Armadillo Resistance Results.csv", as.is = T)
-
+dat.summ2<- dat.summ[order(dat.summ$id),]
 
 
 
 
 ## Make spatiotemporal predictions
-
-#extract beta coeffs (mean)
-betas<- dat.summ$mean
 
 
 #Need to center and scale raster values so comparable to beta coeffs
@@ -117,14 +114,14 @@ xmat<- data.matrix(path[,ind])
 ### Calculate Resistance Surface by ID ###
 
 resist.dyn<- list()
-id1<- unique(dat.summ$id)
+id1<- unique(dat.summ2$id)
 
 for (j in 1:nlayers(green)) {
   print(names(green)[j])
   
   tmp<- list()
   
-  cov.mat<- cbind(#elev = scale(values(dem)),
+  cov.mat<- cbind(1,
                   green = scale(values(green[[j]])),
                   wet = scale(values(wet[[j]])))
   
@@ -132,7 +129,7 @@ for (j in 1:nlayers(green)) {
     print(i)
     
     resistSurf<- green[[1]]
-    raster::values(resistSurf)<- exp(cov.mat %*% dat.summ[which(dat.summ$id == id1[i]), "mean"])
+    raster::values(resistSurf)<- exp(cov.mat %*% dat.summ2[which(dat.summ2$id == id1[i]), "mean"])
     # resistSurf<- resistSurf * 60  #convert from min to sec
     
     #create as data frame
@@ -143,7 +140,8 @@ for (j in 1:nlayers(green)) {
     tmp[[i]]<- resistSurf.df
   }
   
-  names(tmp)<- names(sort(table(path$id), decreasing = TRUE))
+  # names(tmp)<- names(sort(table(path$id), decreasing = TRUE))
+  names(tmp)<- id1
   resist.dyn[[j]]<- tmp
   names(resist.dyn)[j]<- names(green)[j]
 }
@@ -166,7 +164,7 @@ ggplot() +
   geom_raster(data = resist.dyn.df, aes(x, y, fill = time)) +
   geom_path(data = dat, aes(x, y, group = id), alpha = 0.5, color = "chartreuse") +
   scale_fill_viridis_c("Time Spent\nper Cell (min)", option = "inferno",
-                       na.value = "transparent", limits = c(0,15)) +
+                       na.value = "transparent", limits = c(0,7)) +
   scale_x_continuous(expand = c(0,0)) +
   scale_y_continuous(expand = c(0,0)) +
   labs(x="Easting", y="Northing", title = "Resistance Surface") +
@@ -186,42 +184,48 @@ ggplot() +
 #        units = "in", dpi = 300)
 
 
-tmp<- bayesmove::df_to_list(dat, "id") %>% 
-  purrr::map(., . %>% 
-               dplyr::select(season) %>% 
-               # unique() %>% 
-               unlist())
-
-weights<- tmp %>% 
-  map(., ~{table(.x)/length(.x)}) %>% 
-  map(., ~{.x[.x !=0]})
-
-
-#calculate weighted mean resistance across seasons (by N per season)
-resist.mean.id<- resist.dyn.df %>% 
-  bayesmove::df_to_list(., "id") %>% 
-  map2(., tmp, ~{.x %>% 
-      filter(season %in% unique(.y))}) %>% 
-  map(., bayesmove::df_to_list, "season") %>% 
-  map_depth(., 2, pluck, "time")
-
-resist.mean.id2<- resist.mean.id %>% 
-  map(., bind_cols) %>% 
-  map2(., weights, ~apply(.x, 1, function(x) weighted.mean(x, .y, na.rm = TRUE))) %>% 
+#calculate mean resistance at population level (using mean (of means) for ID coeff estimates)
+resist.mean<- list()
+mean1<- dat.summ2 %>% 
+  group_by(coeff) %>% 
+  summarize(mean = mean(mean)) %>% 
+  ungroup() %>% 
+  dplyr::select(mean) %>% 
   unlist()
+mean1<- mean1[c(2,1,3)]  #reorder to match cov.mat (int, green, wet)
 
-resist.mean.id3<- cbind(resist.dyn$Fall$gala[,c("x","y")], time = resist.mean.id2) %>% 
-  mutate(id = rep(names(resist.mean.id), each = ncell(green)), .before = "x")
-# resist.mean.id3$id<- factor(resist.mean.id3$id, levels = names(resist.mean.id))
+for (j in 1:nlayers(green)) {
+  print(names(green)[j])
+  
+  cov.mat<- cbind(1,
+                  green = scale(values(green[[j]])),
+                  wet = scale(values(wet[[j]])))
+  
+  
+  resistSurf<- green[[1]]
+  raster::values(resistSurf)<- exp(cov.mat %*% mean1)
+  
+  #create as data frame
+  resistSurf.df<- as.data.frame(resistSurf, xy=T)
+  names(resistSurf.df)[3]<- "time"
+  
+  resist.mean[[j]]<- resistSurf.df
+  names(resist.mean)[j]<- names(green)[j]
+  
+}
+
+
+resist.mean.df<- bind_rows(resist.mean, .id = "season")
+resist.mean.df$season<- factor(resist.mean.df$season, levels = names(green))
 
 
 
-## Mean across seasons
+## Mean across IDs
 ggplot() +
-  geom_raster(data = resist.mean.id3, aes(x, y, fill = time)) +
+  geom_raster(data = resist.mean.df, aes(x, y, fill = time)) +
   geom_path(data = dat, aes(x, y, group = id), alpha = 0.5, color = "chartreuse") +
   scale_fill_viridis_c("Time Spent\nper Cell (min)", option = "inferno",
-                       na.value = "transparent", limits = c(0,10)) +
+                       na.value = "transparent") +
   scale_x_continuous(expand = c(0,0)) +
   scale_y_continuous(expand = c(0,0)) +
   labs(x="Easting", y="Northing", title = "Resistance Surface") +
@@ -235,85 +239,22 @@ ggplot() +
         legend.title = element_text(size = 14),
         legend.text = element_text(size = 12)) +
   guides(fill = guide_colourbar(barwidth = 30, barheight = 1)) +
-  facet_wrap(~ id, nrow = 1)
+  facet_wrap(~ season, nrow = 2)
 
 # ggsave("Giant Armadillo Time Resistance_ID_facet.png", width = 8.5, height = 4,
 #        units = "in", dpi = 300)
 
 
 
+# Fall ONLY data (to send to Denis)
+resist.mean.fall<- resist.mean.df %>% 
+  filter(season == "Fall")
 
-#calculate weighted mean and variance across IDs (weighted by N for each ID)
-resist.pop<- resist.mean.id3 %>% 
-  bayesmove::df_to_list(., "id") %>% 
-  map_depth(., 1, pluck, "time")
-
-weights2<- table(dat$id)/nrow(dat)
-weights2<- weights2[c(1,3,5,4,2,7,6)]  #reorder to match column order of resist.pop
-
-resist.pop.mean<- resist.pop %>% 
-  bind_cols() %>% 
-  apply(., 1, function(x)  weighted.mean(x, weights2, na.rm = TRUE))
-
-resist.pop.var<- resist.pop %>% 
-  bind_cols() %>% 
-  apply(., 1, var, na.rm = TRUE)
-
-resist.pop2<- cbind(resist.dyn$Fall$gala[,c("x","y")], mu = resist.pop.mean,
-                    sig = resist.pop.var)
-
-
-
-## Mean across IDs
-ggplot() +
-  geom_raster(data = resist.pop2, aes(x, y, fill = mu)) +
-  geom_path(data = dat, aes(x, y, group = id), alpha = 0.5, color = "chartreuse") +
-  scale_fill_viridis_c("Time Spent\nper Cell (min)", option = "inferno",
-                       na.value = "transparent", limits = c(0,10)) +
-  scale_x_continuous(expand = c(0,0)) +
-  scale_y_continuous(expand = c(0,0)) +
-  labs(x="Easting", y="Northing", title = "Mean of Population") +
-  theme_bw() +
-  coord_equal() +
-  theme(legend.position = "bottom",
-        axis.title = element_text(size = 18),
-        axis.text = element_text(size = 10),
-        strip.text = element_text(size = 16, face = "bold"),
-        plot.title = element_text(size = 22),
-        legend.title = element_text(size = 14),
-        legend.text = element_text(size = 12)) +
-  guides(fill = guide_colourbar(barwidth = 30, barheight = 1))
-
-# ggsave("Giant Armadillo Time Resistance_mean.png", width = 9, height = 5,
-#        units = "in", dpi = 300)
-
-
-## Variance across IDs
-ggplot() +
-  geom_raster(data = resist.pop2, aes(x, y, fill = sig)) +
-  geom_path(data = dat, aes(x, y, group = id), alpha = 0.5, color = "chartreuse") +
-  scale_fill_viridis_c("Time Spent\nper Cell (min)", option = "viridis",
-                       na.value = "transparent", limits = c(0,50)) +
-  scale_x_continuous(expand = c(0,0)) +
-  scale_y_continuous(expand = c(0,0)) +
-  labs(x="Easting", y="Northing", title = "Variance of Population") +
-  theme_bw() +
-  coord_equal() +
-  theme(legend.position = "bottom",
-        axis.title = element_text(size = 18),
-        axis.text = element_text(size = 10),
-        strip.text = element_text(size = 16, face = "bold"),
-        plot.title = element_text(size = 22),
-        legend.title = element_text(size = 14),
-        legend.text = element_text(size = 12)) +
-  guides(fill = guide_colourbar(barwidth = 30, barheight = 1))
-
-# ggsave("Giant Armadillo Time Resistance_var.png", width = 9, height = 5,
-#        units = "in", dpi = 300)
 
 
 
 ### Export results
 
 
-# write.csv(resist.pop2, "Giant Armadillo Resistance summary results.csv", row.names = F)
+# write.csv(resist.mean.df, "Giant Armadillo Resistance summary results.csv", row.names = F)
+# write.csv(resist.mean.fall, "Giant Armadillo Resistance summary results_Fall.csv", row.names = F)

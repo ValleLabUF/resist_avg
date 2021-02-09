@@ -380,35 +380,24 @@ ggplot() +
 # ssfSurf.df2<- bind_rows(id.tmp)
 
 
-tmp<- bayesmove::df_to_list(dat, "id") %>% 
-  purrr::map(., . %>% 
-               dplyr::select(season) %>% 
-               # unique() %>% 
-               unlist())
-
-weights<- tmp %>% 
-  map(., ~{table(.x)/length(.x)}) %>% 
-  map(., ~{.x[.x !=0]})
-
-
-#calculate mean resistance across seasons
+#calculate mean resistance across IDs
 ssf.mean.id<- ssfSurf.df %>% 
-  bayesmove::df_to_list(., "id") %>% 
-  map2(., tmp, ~{.x %>% 
-         filter(season %in% unique(.y))}) %>% 
-  map(., bayesmove::df_to_list, "season") %>% 
+  bayesmove::df_to_list(., "season") %>% 
+  map(., bayesmove::df_to_list, "id") %>% 
   map_depth(., 2, pluck, "sel")
 
 ssf.mean.id2<- ssf.mean.id %>% 
   map(., bind_cols) %>% 
-  map2(., weights, ~apply(.x, 1, function(x) weighted.mean(x, .y, na.rm = TRUE))) %>% 
+  map(., dplyr::select, -c(gala, mafalda)) %>%   #omit gala and mafalda
+  map(., rowMeans, na.rm = T) %>% 
   unlist()
 
 ssf.mean.id3<- cbind(ssfSurf$Fall$blanca[,c("x","y")], sel = ssf.mean.id2) %>% 
-  mutate(id = rep(names(ssf.mean.id), each = ncell(green)), .before = "x")
+  mutate(season = rep(names(ssf.mean.id), each = ncell(green)), .before = "x") %>% 
+  mutate(across(season, factor, levels = names(ssf.mean.id)))
 
 
-## Mean across seasons (where observations recorded)
+## Mean across IDs (where observations recorded)
 ggplot() +
   geom_raster(data = ssf.mean.id3, aes(x, y, fill = sel)) +
   geom_path(data = dat, aes(x, y, group = id), alpha = 0.75, color = "chartreuse") +
@@ -419,7 +408,7 @@ ggplot() +
   labs(x="Easting", y="Northing", title = "Habitat Selection") +
   theme_bw() +
   coord_equal() +
-  facet_wrap( ~ id, nrow = 1) +
+  facet_wrap( ~ season, nrow = 2) +
   theme(legend.position = "bottom",
         axis.title = element_text(size = 18),
         axis.text = element_text(size = 10),
@@ -434,162 +423,11 @@ ggplot() +
 
 
 
-# ## calculate mean across seasons
-# ssfSurf.mean.df<- ssfSurf.df %>% 
-#   pivot_wider(., names_from = season, values_from = sel) %>% 
-#   mutate(., mu = rowMeans(select(., 3:6), na.rm = TRUE))
-
-#calculate mean and variance across IDs
-ssf.pop<- ssf.mean.id3 %>% 
-  bayesmove::df_to_list(., "id") %>% 
-  map_depth(., 1, pluck, "sel")
-
-weights2<- table(dat$id)/nrow(dat)  #don't need to reorder for this script
-weights2_red<- table(dat$id)[c(1:2,5:7)]/nrow(dat %>% filter(id != 'gala' & id != 'mafalda'))
-
-ssf.pop.mean<- ssf.pop %>% 
-  bind_cols() %>% 
-  apply(., 1, function(x)  weighted.mean(x, weights2, na.rm = TRUE))
-
-ssf.pop.mean_red<- ssf.pop %>%   #w/ removal of gala and mafalda
-  bind_cols() %>% 
-  dplyr::select(-c(gala, mafalda)) %>% 
-  apply(., 1, function(x)  weighted.mean(x, weights2_red, na.rm = TRUE))
-
-ssf.pop.var<- ssf.pop %>% 
-  bind_cols() %>% 
-  apply(., 1, var, na.rm = TRUE)
-
-ssf.pop.var_red<- ssf.pop %>% 
-  bind_cols() %>% 
-  dplyr::select(-c(gala, mafalda)) %>% 
-  apply(., 1, var, na.rm = TRUE)
-
-
-ssf.pop2<- cbind(ssfSurf$Fall$blanca[,c("x","y")], mu = ssf.pop.mean,
-                    sig = ssf.pop.var)
-
-ssf.pop2_red<- cbind(ssfSurf$Fall$blanca[,c("x","y")], mu = ssf.pop.mean_red,
-                 sig = ssf.pop.var_red)
-
-
-## Selection (average; all IDs)
-ggplot() +
-  geom_raster(data = ssf.pop2, aes(x, y, fill = mu)) +
-  geom_path(data = dat, aes(x, y, group = id), alpha = 0.75, color = "black") +
-  scale_fill_viridis_c("Selection", option = "inferno",
-                       na.value = "transparent", limits = c(0,1)) +
-  scale_x_continuous(expand = c(0,0)) +
-  scale_y_continuous(expand = c(0,0)) +
-  labs(x="Easting", y="Northing", title = "Mean of Population") +
-  theme_bw() +
-  coord_equal() +
-  theme(legend.position = "bottom",
-        axis.title = element_text(size = 18),
-        axis.text = element_text(size = 10),
-        strip.text = element_text(size = 16, face = "bold"),
-        plot.title = element_text(size = 22),
-        legend.title = element_text(size = 14),
-        legend.text = element_text(size = 12)) +
-  guides(fill = guide_colourbar(barwidth = 30, barheight = 1))
-
-# ggsave("Giant Armadillo Habitat Selection_mean.png", width = 9, height = 5,
-#        units = "in", dpi = 300)
-
-## Selection (average; reduced IDs)
-ggplot() +
-  geom_raster(data = ssf.pop2_red, aes(x, y, fill = mu)) +
-  geom_path(data = dat, aes(x, y, group = id), alpha = 0.75, color = "black") +
-  scale_fill_viridis_c("Selection", option = "inferno",
-                       na.value = "transparent", limits = c(0,1)) +
-  scale_x_continuous(expand = c(0,0)) +
-  scale_y_continuous(expand = c(0,0)) +
-  labs(x="Easting", y="Northing", title = "Mean of Population") +
-  theme_bw() +
-  coord_equal() +
-  theme(legend.position = "bottom",
-        axis.title = element_text(size = 18),
-        axis.text = element_text(size = 10),
-        strip.text = element_text(size = 16, face = "bold"),
-        plot.title = element_text(size = 22),
-        legend.title = element_text(size = 14),
-        legend.text = element_text(size = 12)) +
-  guides(fill = guide_colourbar(barwidth = 30, barheight = 1))
-
-
-## Selection (variance; all IDs)
-ggplot() +
-  geom_raster(data = ssf.pop2, aes(x, y, fill = sig)) +
-  geom_path(data = dat, aes(x, y, group = id), alpha = 0.75, color = "chartreuse") +
-  scale_fill_viridis_c("Selection", option = "viridis",
-                       na.value = "transparent") +
-  scale_x_continuous(expand = c(0,0)) +
-  scale_y_continuous(expand = c(0,0)) +
-  labs(x="Easting", y="Northing", title = "Variance of Population") +
-  theme_bw() +
-  coord_equal() +
-  theme(legend.position = "bottom",
-        axis.title = element_text(size = 18),
-        axis.text = element_text(size = 10),
-        strip.text = element_text(size = 16, face = "bold"),
-        plot.title = element_text(size = 22),
-        legend.title = element_text(size = 14),
-        legend.text = element_text(size = 12)) +
-  guides(fill = guide_colourbar(barwidth = 30, barheight = 1))
-
-# ggsave("Giant Armadillo Habitat Selection_var.png", width = 9, height = 5,
-#        units = "in", dpi = 300)
-
-
-## Selection (variance; reduced IDs)
-ggplot() +
-  geom_raster(data = ssf.pop2_red, aes(x, y, fill = sig)) +
-  geom_path(data = dat, aes(x, y, group = id), alpha = 0.75, color = "chartreuse") +
-  scale_fill_viridis_c("Selection", option = "viridis",
-                       na.value = "transparent") +
-  scale_x_continuous(expand = c(0,0)) +
-  scale_y_continuous(expand = c(0,0)) +
-  labs(x="Easting", y="Northing", title = "Variance of Population") +
-  theme_bw() +
-  coord_equal() +
-  theme(legend.position = "bottom",
-        axis.title = element_text(size = 18),
-        axis.text = element_text(size = 10),
-        strip.text = element_text(size = 16, face = "bold"),
-        plot.title = element_text(size = 22),
-        legend.title = element_text(size = 14),
-        legend.text = element_text(size = 12)) +
-  guides(fill = guide_colourbar(barwidth = 30, barheight = 1))
-
-
-
-## Resistance (negative exponential transformation; c=8)
-# ggplot() +
-#   geom_raster(data = ssfSurfN_r.df, aes(x, y, fill = resist)) +
-#   geom_path(data = dat %>% filter(region == "N"),
-#             aes(x, y, group = id), alpha = 0.5, color = "chartreuse") +
-#   scale_fill_viridis_c("Resistance", option = "inferno",
-#                        na.value = "transparent") +
-#   scale_x_continuous(expand = c(0,0)) +
-#   scale_y_continuous(expand = c(0,0)) +
-#   labs(x="Easting", y="Northing", title = "North Pantanal Resistance") +
-#   theme_bw() +
-#   coord_equal() +
-#   theme(legend.position = "bottom",
-#         axis.title = element_text(size = 18),
-#         axis.text = element_text(size = 10),
-#         strip.text = element_text(size = 16, face = "bold"),
-#         plot.title = element_text(size = 22),
-#         legend.title = element_text(size = 14),
-#         legend.text = element_text(size = 12)) +
-#   guides(fill = guide_colourbar(barwidth = 30, barheight = 1))
-
-# ggsave("N Pantanal Resistance.png", width = 9, height = 5, units = "in", dpi = 300)
 
 
 
 
 ### Export summary results
 
-# write.csv(ssf.pop2_red, "Giant Armadillo SSF summary results.csv", row.names = F)
+# write.csv(ssf.mean.id3, "Giant Armadillo SSF summary results.csv", row.names = F)
 # write.csv(soma.betas, "SSF coeffs.csv", row.names = F)

@@ -1,23 +1,16 @@
 
-# library(R2jags)
+library(R2jags)
 library(tictoc)
-# library(MCMCvis)
+library(MCMCvis)
 library(dplyr)
 library(ggplot2)
 library(tidyr)
 library(lubridate)
 library(furrr)
 library(purrr)
-library(Rcpp)
-library(mvtnorm)
 library(coda)
 library(stringr)
 library(fishualize)
-
-source('gibbs_resist_avg.R')
-source('gibbs_resist_avg_func.R')
-source('slice_b_gamma.R')
-source('slice_betas.R')
 
 
 # Load data
@@ -74,90 +67,103 @@ path<- path %>%
 ### Run model ###
 #################
 
-#prepare data
-ind<- c("green", "wet")
-# xmat<- data.matrix(path[,ind])
-# npix<- path$n
-# y<- path$dt
+#define the model
+model = function(){
+  #likelihood
+  for (i in 1:nobs){
+    mu[i] <- n[i]*exp(b0[id[i]] + inprod(xmat[i,],betas[id[i], 1:nparam]))
+    a[i] <- mu[i]*b
+    dt[i] ~ dgamma(a[i],b)
+  } 
+  
+  
+  #priors
+  b ~ dunif(0,1000)
+  
+  for (k in 1:nparam){  #random effect on slopes
+    for (l in 1:n.id) {  
+      betas[l,k] ~ dnorm(mu_slope, tau2_slope)
+    }
+  }
+  mu_slope ~ dnorm(0,0.1)
+  tau2_slope ~ dgamma(0.1,0.1)
+  
+  for (j in 2:n.id){  #random effect on intercept
+    b0[j] ~ dnorm(0, tau2_int)
+  }
+  b0[1]<- 0  #ref ID is set to 0
+  # mu.id ~ dnorm(0,0.1)
+  tau2_int ~ dgamma(0.1,0.1)
+}
 
 
-#model args
-ngibbs=5000
-# nburn=ngibbs/2
-# w=0.01
-# MaxIter=1000
 
-#priors
-var.betas=rep(10, length(ind))
+
+
+#prepare data for jags
+path.list<- bayesmove::df_to_list(path, "id")
+path2<- path.list[order(sapply(path.list, nrow), decreasing=TRUE)] %>% #reorder IDs
+  bind_rows()
+id<- as.numeric(factor(path2$id, levels = unique(path2$id)))
+n.id<- max(id)
+nobs<- nrow(path2)
+dt<- path2$dt
+n<- path2$n
+ind<- c("green","wet")
+xmat<- data.matrix(path2[,ind])
+dat1<- list(nobs=nobs, dt=dt, n=n, xmat=xmat, nparam=ncol(xmat), id=id, n.id=n.id)
+
+
+#set parameters to track
+params=c('betas','b','b0')
+
+
+#MCMC settings 
+n.iter <- 5000
+n.thin <- 5  
+n.burnin <- n.iter/2
+n.chains <- 3
 
 
 #Run model
-set.seed(1234)
-plan(multisession)
+set.seed(123)
 
-progressr::with_progress({
-  res<- resist(data = path, covs = ind, priors = var.betas, ngibbs = ngibbs)
-})
-future:::ClusterRegistry("stop")  #close all threads and memory used
-# takes 55 sec to run (for 5000 iter)
-
-
+tic()
+res = jags(model.file = model, parameters.to.save = params, data = dat1,
+             n.chains = n.chains, n.burnin = n.burnin, n.iter = n.iter,
+             n.thin = n.thin, DIC = TRUE)
+toc()
+# takes 14.5 min to run 5000 iterations
 
 
-#store results
-store.llk<- map(res, ~pluck(., "llk"))
-store.b<- map(res, ~pluck(., "b.gamma"))
-store.betas<- map(res, ~pluck(., "betas"))
+res
 
-#look at overall convergence
-llk<- t(bind_rows(store.llk))
-llk<- data.frame(id = names(store.llk), llk)
-bayesmove::traceplot(data = llk, ngibbs = ngibbs, type = "LML")
-for (i in 1:length(store.llk)) {
-  acf(store.llk[[i]][((ngibbs/2) + 1):ngibbs])
-}
+MCMCsummary(res)
+MCMCtrace(res, ind = TRUE, iter = 500, pdf = FALSE)
+par(mfrow=c(1,1))
+MCMCplot(res, excl = "deviance")
 
-#look at convergence of b hyperparameter
-b<- t(bind_rows(store.b))
-b<- data.frame(id = names(store.b), b)
-bayesmove::traceplot(data = b, ngibbs = ngibbs, type = "LML")
-for (i in 1:length(store.b)) {
-  acf(store.b[[i]][((ngibbs/2) + 1):ngibbs])
-}
-
-#look at convergence of betas
-betas<- t(bind_rows(store.betas))
-betas<- data.frame(id = paste(rep(names(store.betas), each = length(var.betas)),
-                              rep(ind, length(unique(path$id)))),
-                   betas)
-bayesmove::traceplot(data = betas, ngibbs = ngibbs, type = "LML")
-betas2<- map(store.betas, data.frame) %>% 
-  bind_cols()
-for (i in 1:ncol(betas2)) {
-  acf(betas2[((ngibbs/2) + 1):ngibbs, i])
-}
+res.summ<- res$BUGSoutput$summary
 
 
 
-### Make caterpillar plot
-betas3<- as.mcmc(betas2[((ngibbs/2)+1):ngibbs,])
-hpd<- HPDinterval(betas3)
-x.bar<- colMeans(betas3)
-post<- data.frame(var = betas$id, mean = x.bar, hpd)
-post<- cbind(str_split_fixed(string = post$var, pattern = " ", n = 2), post) %>% 
-  dplyr::select(-var)
-names(post)[1:2]<- c("id", "coeff")
-post$coeff<- factor(post$coeff, levels = ind)
+
+### Make (pretty) caterpillar plot
+betas<- data.frame(res.summ[2:22,c(1,3,7)])
+betas$coeff<- c(rep('int', n.id),
+                rep('green', n.id),
+                rep('wet', n.id))
+betas$id<- rep(unique(path2$id), 3)
+names(betas)[2:3]<- c("lower", "upper")
+betas$coeff<- factor(betas$coeff, levels = c("int","green","wet"))
 
 
-# pal<- as.character(palette.colors(length(unique(post$id))))
-
-ggplot(data=post, aes(x=coeff, y=mean, ymin=lower, ymax=upper, color = id)) +
+ggplot(data=betas, aes(x=coeff, y=mean, ymin=lower, ymax=upper, color = id)) +
   geom_hline(yintercept = 0) +
   geom_errorbar(position = position_dodge(0.55), width = 0, size = 0.75) +
   geom_point(position = position_dodge(0.55), size=2) +
-  # scale_color_manual(values = pal) +
-  scale_color_fish_d(option = "Scarus_tricolor") +
+  scale_x_discrete(labels = c("Intercept","Greenness", "Wetness")) +
+  scale_color_fish_d("", option = "Scarus_tricolor") +
   theme_bw() +
   coord_flip() +
   labs(x="", y="") +
@@ -169,9 +175,124 @@ ggplot(data=post, aes(x=coeff, y=mean, ymin=lower, ymax=upper, color = id)) +
 
 
 
+
+
+
+###########################################
+### Viz partial responses to covs by ID ###
+###########################################
+
+id1<- unique(path2$id)
+
+
+## Greenness
+green.res<- list()
+
+for (i in 1:length(unique(path2$id))) {
+  
+  #Generate sequence along green
+  rango1<- path2 %>% 
+    filter(id == id1[i]) %>% 
+    dplyr::select(green) %>% 
+    range()
+  seq.green<- seq(rango1[1], rango1[2], length.out = 100)
+  
+  
+  #Create design matrix where 0s added for all other vars besides green
+  design.mat<- cbind(betas[betas$id == id1[i] & betas$coeff == "int", "mean"],
+                     seq.green,
+                     0)
+  
+  # Take cross-product of design matrix with betas and exponentiate to calc response
+  ind<- which(id1[i] == betas$id)  #indicator by ID
+  
+  y.mu<- exp(design.mat %*% betas$mean[ind])
+  y.low<- exp(design.mat %*% betas$lower[ind])
+  y.up<- exp(design.mat %*% betas$upper[ind])
+  
+  
+  # Add results to data frame
+  y.mu.df<- data.frame(x = seq.green,
+                       y = y.mu,
+                       ymin = y.low,
+                       ymax = y.up,
+                       id = id1[i])
+  
+  green.res[[i]]<- y.mu.df
+}
+
+green.res.df<- bind_rows(green.res)
+
+# Plot relationship
+ggplot(data = green.res.df) +
+  geom_ribbon(aes(x=x, ymin=ymin, ymax=ymax, fill = id), alpha =  0.3) +
+  geom_line(aes(x, y, color = id), size = 1) +
+  scale_color_brewer("", palette = "Dark2") +
+  scale_fill_brewer("", palette = "Dark2") +
+  labs(x = "\nStandardized Greenness", y = "Time Spent per Cell (min)\n") +
+  theme_bw() +
+  theme(axis.title = element_text(size = 16),
+        axis.text = element_text(size = 12))
+
+
+
+
+
+## Wetness
+wet.res<- list()
+
+for (i in 1:length(unique(path2$id))) {
+  
+  #Generate sequence along wet
+  rango1<- path2 %>% 
+    filter(id == id1[i]) %>% 
+    dplyr::select(wet) %>% 
+    range()
+  seq.wet<- seq(rango1[1], rango1[2], length.out = 100)
+  
+  
+  #Create design matrix where 0s added for all other vars besides wet
+  design.mat<- cbind(betas[betas$id == id1[i] & betas$coeff == "int", "mean"],
+                     0,
+                     seq.wet)
+  
+  # Take cross-product of design matrix with betas and exponentiate to calc response
+  ind<- which(id1[i] == betas$id)  #indicator by ID
+  
+  y.mu<- exp(design.mat %*% betas$mean[ind])
+  y.low<- exp(design.mat %*% betas$lower[ind])
+  y.up<- exp(design.mat %*% betas$upper[ind])
+  
+  
+  # Add results to data frame
+  y.mu.df<- data.frame(x = seq.wet,
+                       y = y.mu,
+                       ymin = y.low,
+                       ymax = y.up,
+                       id = id1[i])
+  
+  wet.res[[i]]<- y.mu.df
+}
+
+wet.res.df<- bind_rows(wet.res)
+
+# Plot relationship
+ggplot(data = wet.res.df) +
+  geom_ribbon(aes(x=x, ymin=ymin, ymax=ymax, fill = id), alpha =  0.3) +
+  geom_line(aes(x, y, color = id), size = 1) +
+  scale_color_brewer("", palette = "Dark2") +
+  scale_fill_brewer("", palette = "Dark2") +
+  labs(x = "\nStandardized Wetness", y = "Time Spent per Cell (min)\n") +
+  theme_bw() +
+  theme(axis.title = element_text(size = 16),
+        axis.text = element_text(size = 12))
+
+
+
+
 ######################
 ### Export results ###
 ######################
 
 
-# write.csv(post, "Giant Armadillo Resistance Results.csv", row.names = F)
+# write.csv(betas, "Giant Armadillo Resistance Results.csv", row.names = F)

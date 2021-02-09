@@ -15,6 +15,12 @@ dat<-  dat %>%
   mutate(across(c('z.map','z.post.thresh','z.post.max'), factor,
                 levels = c("Slow-Turn","Slow-Unif","Exploratory","Transit","Unclassified"))
   )
+dat$month<- month.abb[month(dat$date)]
+dat$month<- factor(dat$month, levels = month.abb[c(5:12,1)])
+dat$season<- ifelse(dat$month %in% c(month.abb[3:5]), "Fall",
+                    ifelse(dat$month %in% c(month.abb[6:8]), "Winter",
+                           ifelse(dat$month %in% c(month.abb[9:11]), "Spring", "Summer")))
+dat$season<- factor(dat$season, levels = c("Fall","Winter","Spring","Summer"))
 
 
 #Tasseled Cap Greenness
@@ -36,7 +42,8 @@ resist.pop2<- read.csv("Giant Armadillo Resistance summary results.csv", as.is =
 
 ### Plot Velocity-based Resistance vs Habitat Selection
 
-dat.comp<- cbind(ssf.mean.id3, time = resist.mean.id3$time)
+dat.comp<- cbind(ssf.pop2, time = resist.pop2$time)
+dat.comp$season<- factor(dat.comp$season, levels = names(green))
 
 quant_99.9<- quantile(na.omit(dat.comp$time), 0.999)
 dat.comp2<- dat.comp %>% 
@@ -81,15 +88,19 @@ ggplot(dat.comp, aes(time, sel, color = season)) +
 
 
 ### Reclassify pixels and map
+dat.comp3<- dat.comp
+ind<- which(dat.comp3$time > 7)
+dat.comp3[ind, c("sel","time")]<- NA  #set values to NA when time > 7 min
+  
 
 
 ## Using 2 continuous color scales
 ggplot() +
-  geom_raster(data = dat.comp, aes(x, y, fill = time), alpha = 0.75) +
+  geom_raster(data = dat.comp3, aes(x, y, fill = time), alpha = 0.75) +
   scale_fill_gradient("Time Spent\nper Cell (min)", low = "white", high = "royalblue3",
-                       na.value = "transparent", limits = c(0,quant_99.9)) +
+                       na.value = "transparent") +
   new_scale_fill() +
-  geom_raster(data = dat.comp, aes(x, y, fill = sel), alpha = 0.75) +
+  geom_raster(data = dat.comp3, aes(x, y, fill = sel), alpha = 0.75) +
   scale_fill_gradient("Selection", low = "red4", high = "white",
                        na.value = "transparent", limits = c(0,1)) +
   geom_path(data = dat, aes(x, y, group = id), alpha = 0.5, color = "black") +
@@ -115,14 +126,11 @@ ggplot() +
 
 ## Creation of 4 classes
 
-all.dat<- cbind(resist.pop2[,-4], ssf.pop2$mu)
-names(all.dat)[3:4]<- c("time", "sel")
-
-all.dat<- dat.comp %>% 
+all.dat<- dat.comp3 %>% 
   mutate(fun_class = case_when(.$time > time.mid & .$sel > 0.5 ~ "Slow-Preferred",
-                                .$time > time.mid & .$sel < 0.5 ~ "Slow-Avoided",
-                                .$time < time.mid & .$sel > 0.5 ~ "Fast-Preferred",
-                                .$time < time.mid & .$sel < 0.5 ~ "Fast-Avoided"))
+                               .$time > time.mid & .$sel < 0.5 ~ "Slow-Avoided",
+                               .$time < time.mid & .$sel > 0.5 ~ "Fast-Preferred",
+                               .$time < time.mid & .$sel < 0.5 ~ "Fast-Avoided"))
 
 
 
@@ -130,7 +138,7 @@ ggplot() +
   geom_raster(data = all.dat, aes(x, y, fill = fun_class), na.rm = T) +
   scale_fill_manual("", values = c("firebrick","forestgreen","yellow","steelblue1"),
                     na.translate = F) +
-  geom_path(data = dat, aes(x, y, group = id), alpha = 0.65, color = "black") +
+  geom_path(data = dat, aes(x, y, group = id), alpha = 0.85, color = "black") +
   scale_x_continuous(expand = c(0,0)) +
   scale_y_continuous(expand = c(0,0)) +
   labs(x="Easting", y="Northing") +
