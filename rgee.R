@@ -87,7 +87,8 @@ addAWEIsh<- function(image) {
       'GREEN' = image$select('B3'),
       'BLUE' = image$select('B2')
     )
-  )$rename('AWEI')))
+  )$rename('AWEI')$toFloat())  #needs to be float, not double
+  )
   
 }
 
@@ -107,8 +108,7 @@ maskL8sr<- function(image) {
 # Retrieve Landsat 8-based NDVI
 l8<- ee$ImageCollection('LANDSAT/LC08/C01/T1_SR')$
   filterBounds(bounds)$
-  filterDate('2019-05-19', '2020-01-24')$
-  map(function(image){image$clip(bounds)})$
+  filterDate('2019-05-01', '2020-01-31')$
   sort("system:time_start", TRUE)$  # Sort the collection in chronological order
   map(function(x) x$reproject("EPSG:32721"))
 
@@ -143,22 +143,22 @@ Map$addLayer(l8_ndvi$median(),
 
 
 # Map the AWEI and cloud mask functions; select only the AWEI band
-# l8_awei<- l8$map(addAWEIsh)$
-#   map(maskL8sr)$
-#   select('AWEI')
-# 
-# ee_print(l8_awei)
-# mean1<- l8_awei$first()$reduceRegions(collection =  bounds,
-#                               reducer = ee$Reducer$mean(),
-#                               scale = 30)
-# print(mean1$getInfo())
-# 
-# ndwiViz <- list(min = 0, max = 1, palette = c("00FFFF", "0000FF"))
-# 
-# # Plot the map of the median AWEI for the region
-# Map$setCenter(-55.76664, -19.19482, 11)
-# Map$addLayer(l8_awei$mean(),
-#              visParams = ndwiViz)
+l8_awei<- l8$map(addAWEIsh)$
+  map(maskL8sr)$
+  select('AWEI')
+
+ee_print(l8_awei)
+mean1<- l8_awei$first()$reduceRegions(collection =  bounds,
+                              reducer = ee$Reducer$mean(),
+                              scale = 30)
+print(mean1$getInfo())
+
+ndwiViz <- list(min = 0, max = 1, palette = c("00FFFF", "0000FF"))
+
+# Plot the map of the median AWEI for the region
+Map$setCenter(-55.76664, -19.19482, 11)
+Map$addLayer(l8_awei$median(),
+             visParams = ndwiViz)
 
 
 # Map the NDWI and cloud mask functions; select only the NDWI band
@@ -216,24 +216,24 @@ rasterVis::levelplot(ndvi.stack, at=breaks, col.regions=cols, main="NDVI")
 
 
 
-# # Download all images locally
-# setwd("~/Documents/Snail Kite Project/Data/R Scripts/ValleLabUF/resist_avg/AWEI")
-# 
-# awei<- ee_imagecollection_to_local(
-#   ic = l8_awei,
-#   scale = 30,
-#   region = bounds,
-#   via = 'drive'
-# )
-# 
-# 
-# awei.stack<- raster::stack(awei)
-# 
-# breaks<- seq(0, 1, by=0.01)
-# cols<- colorRampPalette(c("#00FFFF", "#0000FF"))(length(breaks)-1)
-# 
-# ##plot
-# rasterVis::levelplot(awei.stack[[1:4]], at=breaks, col.regions=cols, main="AWEI")
+# Download all images locally
+setwd("~/Documents/Snail Kite Project/Data/R Scripts/ValleLabUF/resist_avg/AWEI")
+
+awei<- ee_imagecollection_to_local(
+  ic = l8_awei,
+  scale = 30,
+  region = bounds,
+  via = 'drive'
+)
+
+
+awei.stack<- raster::stack(awei)
+
+breaks<- seq(0, 1, by=0.01)
+cols<- colorRampPalette(c("#00FFFF", "#0000FF"))(length(breaks)-1)
+
+##plot
+rasterVis::levelplot(awei.stack[[1:4]], at=breaks, col.regions=cols, main="AWEI")
 
 
 
@@ -350,14 +350,13 @@ rasterVis::levelplot(mosaic.ndvi, at=breaks, col.regions=cols, main="NDVI") +
 
 ### If wanting to aggregate into seasons:
 
-# May is Fall
-# Jun/Jul/Aug are Winter
-# Sep/Oct/Nov are Spring
-# Dec/Jan are Summer
+# Wet is May-July, January
+# Dry is August-December
 
-season.ind<- c("Fall", rep("Winter",3), rep("Spring",3), rep("Summer",2))
+#convert from months to wet/dry seasons
+season.ind<- ifelse(names(mosaic.ndvi) %in% month.abb[1:7], "Flood", "Dry")
 ndvi.season<- stackApply(mosaic.ndvi, season.ind, fun = mean)
-names(ndvi.season)<- c("Fall","Winter","Spring","Summer")
+names(ndvi.season)<- c("Flood","Dry")
 rasterVis::levelplot(ndvi.season, at=breaks, col.regions=cols, main="NDVI") +
   layer(sp.points(dat, cex=0.1, pch = 16, col = alpha("red", 0.5)))
 
@@ -375,10 +374,7 @@ mosaic.ndvi.df<- filter(mosaic.ndvi.df, ndvi > 0)  #only keep values from 0-1
 dat<- as.data.frame(dat)
 dat$month<- month.abb[month(dat$date)]
 dat$month<- factor(dat$month, levels = month.abb[c(5:12,1)])
-dat$season<- ifelse(dat$month %in% c(month.abb[3:5]), "Fall",
-                    ifelse(dat$month %in% c(month.abb[6:8]), "Winter",
-                           ifelse(dat$month %in% c(month.abb[9:11]), "Spring", "Summer")))
-dat$season<- factor(dat$season, levels = c("Fall","Winter","Spring","Summer"))
+dat$season<- ifelse(dat$month %in% month.abb[1:7], "Flood", "Dry")
 
 
 ggplot() +
@@ -397,8 +393,8 @@ ggplot() +
 ndvi.season.df<- as.data.frame(ndvi.season, xy=TRUE)
 ndvi.season.df<- pivot_longer(ndvi.season.df, cols = -c(x,y), names_to = "season",
                               values_to = "ndvi")
-ndvi.season.df$season<- factor(ndvi.season.df$season,
-                               levels = c("Fall","Winter","Spring","Summer"))
+# ndvi.season.df$season<- factor(ndvi.season.df$season,
+#                                levels = c("Fall","Winter","Spring","Summer"))
 ndvi.season.df<- filter(ndvi.season.df, ndvi > 0)  #only keep values from 0-1
 
 
@@ -495,14 +491,13 @@ rasterVis::levelplot(mosaic.ndwi, at=breaks, col.regions=cols, main="NDWI") +
 
 ### If wanting to aggregate into seasons:
 
-# May is Fall
-# Jun/Jul/Aug are Winter
-# Sep/Oct/Nov are Spring
-# Dec/Jan are Summer
+# Wet is May-July, January
+# Dry is August-December
 
-season.ind<- c("Fall", rep("Winter",3), rep("Spring",3), rep("Summer",2))
+#convert from months to wet/dry seasons
+season.ind<- ifelse(names(mosaic.ndwi) %in% month.abb[1:7], "Flood", "Dry")
 ndwi.season<- stackApply(mosaic.ndwi, season.ind, fun = mean)
-names(ndwi.season)<- c("Fall","Winter","Spring","Summer")
+names(ndwi.season)<- c("Flood","Dry")
 rasterVis::levelplot(ndwi.season, at=breaks, col.regions=cols, main="NDWI") +
   layer(sp.points(dat, cex=0.1, pch = 16, col = alpha("red", 0.5)))
 
@@ -518,12 +513,12 @@ mosaic.ndwi.df$month<- factor(mosaic.ndwi.df$month, levels = month.abb[c(5:12,1)
 # mosaic.ndwi.df<- filter(mosaic.ndwi.df, ndwi > 0)  #only keep values from 0-1
 
 dat<- as.data.frame(dat)
-dat$month<- month.abb[month(dat$date)]
-dat$month<- factor(dat$month, levels = month.abb[c(5:12,1)])
-dat$season<- ifelse(dat$month %in% c(month.abb[3:5]), "Fall",
-                    ifelse(dat$month %in% c(month.abb[6:8]), "Winter",
-                           ifelse(dat$month %in% c(month.abb[9:11]), "Spring", "Summer")))
-dat$season<- factor(dat$season, levels = c("Fall","Winter","Spring","Summer"))
+# dat$month<- month.abb[month(dat$date)]
+# dat$month<- factor(dat$month, levels = month.abb[c(5:12,1)])
+# dat$season<- ifelse(dat$month %in% c(month.abb[3:5]), "Fall",
+#                     ifelse(dat$month %in% c(month.abb[6:8]), "Winter",
+#                            ifelse(dat$month %in% c(month.abb[9:11]), "Spring", "Summer")))
+# dat$season<- factor(dat$season, levels = c("Fall","Winter","Spring","Summer"))
 
 
 
@@ -544,8 +539,8 @@ ggplot() +
 ndwi.season.df<- as.data.frame(ndwi.season, xy=TRUE)
 ndwi.season.df<- pivot_longer(ndwi.season.df, cols = -c(x,y), names_to = "season",
                               values_to = "ndwi")
-ndwi.season.df$season<- factor(ndwi.season.df$season,
-                               levels = c("Fall","Winter","Spring","Summer"))
+# ndwi.season.df$season<- factor(ndwi.season.df$season,
+#                                levels = c("Fall","Winter","Spring","Summer"))
 # ndwi.season.df<- filter(ndwi.season.df, ndwi > 0)  #only keep values from 0-1
 
 
@@ -571,6 +566,153 @@ ggplot() +
 
 
 
+
+
+
+
+#### AWEI ####
+
+setwd("~/Documents/Snail Kite Project/Data/R Scripts/ValleLabUF/resist_avg/AWEI")
+
+#load files as raster brick
+awei<- list.files(getwd(), pattern = "*.tif$")
+awei.stack<- stack(awei)
+awei.stack2<- flip(awei.stack, direction = 'y')
+names(awei.stack2)<- names(awei.stack)
+awei.brick<- awei.stack2
+
+#change values x == 0 to NA (these are masked pixels)
+raster::values(awei.brick)[raster::values(awei.brick) == 0] <- NA
+
+#rename images by date
+names(awei.brick)<- gsub(pattern = "LC08_22.07._", replacement = "", names(awei.brick))
+
+
+#visualize original rasters
+plot(awei.brick[[1:6]])
+
+
+
+#### Mosaic RasterBrick over space and time ####
+
+mosaic.awei<- list()
+tmp1<- gsub(pattern = "LC08_22.07._", replacement = "", names(awei.stack2))
+ind.m<- format(as.Date(tmp1, format = "%Y%m%d"), format = "%m") %>% 
+  as.numeric()
+ord.months<- c(5:12,1)
+
+
+for (i in 1:length(unique(ind.m))) {
+  ind<- which(ind.m %in% ord.months[i])  #using unique(ind.m) instead of ord.months results in wrong order
+  awei.sub<- awei.stack2[[ind]]
+  
+  # time1<- gsub(pattern = "LC08_22.07._", replacement = "", names(ndvi.stack))[i]
+  ind.pr<- stringr::str_sub(names(awei.stack2)[ind], 6, 11)
+  
+  if (length(unique(ind.pr)) > 1) {
+    tile.list<- vector("list", length = length(unique(ind.pr)))
+    
+    for (j in 1:length(unique(ind.pr))) {
+      ind.tiles<- grep(pattern = unique(ind.pr)[j], names(awei.stack2)[ind])
+      tile.list[[j]]<- mean(awei.sub[[ind.tiles]], na.rm=TRUE)
+    }
+    
+    tile.list$fun <- mean
+    tile.list$na.rm <- TRUE
+    
+    tile.mosaic<- do.call(raster::mosaic, tile.list)
+    
+  } else {
+    tile.mosaic<- mean(awei.sub, na.rm=TRUE)
+  }
+  
+  mosaic.awei[[i]]<- tile.mosaic
+}
+
+
+coordinates(dat) <- ~x+y
+
+
+mosaic.awei<- raster::brick(mosaic.awei)
+names(mosaic.awei)<- month.abb[c(5:12,1)]
+
+### Classify water as values > -3000; THIS NEEDS TO BE INVESTIGATED FURTHER
+# mosaic.awei.bin<- calc(mosaic.awei, fun = function(x, ...) ifelse(x > -3000, 1, -1), na.rm = TRUE)
+# 
+# plot(mosaic.awei.bin)
+# points(dat, cex=0.1, pch = 16, col = alpha("red", 0.5))
+
+
+
+### If wanting to aggregate into seasons:
+
+# Wet is May-July, January
+# Dry is August-December
+
+#convert from months to wet/dry seasons
+season.ind<- ifelse(names(mosaic.awei) %in% month.abb[1:7], "Flood", "Dry")
+awei.season<- stackApply(mosaic.awei, season.ind, fun = mean)
+names(awei.season)<- c("Flood","Dry")
+plot(awei.season)
+
+
+
+
+### Try plotting in ggplot2 so points can be plotted by month and season
+
+mosaic.awei.df<- as.data.frame(mosaic.awei, xy=TRUE)
+mosaic.awei.df<- pivot_longer(mosaic.awei.df, cols = -c(x,y), names_to = "month",
+                              values_to = "awei")
+mosaic.awei.df$month<- factor(mosaic.awei.df$month, levels = month.abb[c(5:12,1)])
+# mosaic.awei.df<- filter(mosaic.awei.df, awei > 0)  #only keep values from 0-1
+
+dat<- as.data.frame(dat)
+
+
+
+ggplot() +
+  geom_raster(data = mosaic.awei.df, aes(x, y, fill = awei)) +
+  geom_point(data = dat, aes(x, y, color = id), size = 0.5, alpha = 0.75) + 
+  theme_bw() +
+  scale_fill_gradientn(colors = cols, na.value = "transparent", limits = c(-1,1)) +
+  scale_color_brewer(palette = "Dark2") +
+  coord_fixed() +
+  facet_wrap(~ month) +
+  theme(strip.text = element_text(size = 12, face = "bold"))
+
+
+
+
+awei.season.df<- as.data.frame(awei.season, xy=TRUE)
+awei.season.df<- pivot_longer(awei.season.df, cols = -c(x,y), names_to = "season",
+                              values_to = "awei")
+# awei.season.df$season<- factor(awei.season.df$season,
+#                                levels = c("Fall","Winter","Spring","Summer"))
+# awei.season.df<- filter(awei.season.df, awei > 0)  #only keep values from 0-1
+
+
+
+ggplot() +
+  geom_raster(data = awei.season.df, aes(x, y, fill = awei)) +
+  geom_point(data = dat, aes(x, y, color = id), size = 0.5, alpha = 0.75) + 
+  theme_bw() +
+  scale_fill_gradientn(colors = cols, na.value = "transparent", limits = c(-1,1)) +
+  scale_color_brewer(palette = "Dark2") +
+  facet_wrap(~ season) +
+  labs(x="Easting", y="Northing", title = "Pantanal AWEI") +
+  coord_equal() +
+  theme(legend.position = "right",
+        axis.title = element_text(size = 18),
+        axis.text = element_text(size = 10),
+        strip.text = element_text(size = 16, face = "bold"),
+        plot.title = element_text(size = 22),
+        legend.title = element_text(size = 14),
+        legend.text = element_text(size = 12))
+
+# ggsave("Giant Armadillo AWEI_seasons.png", width = 6, height = 5, units = "in", dpi = 300)
+
+
+
 ####################################################
 ### Write and save RasterBricks as geoTIFF files ###
 ####################################################
@@ -587,6 +729,9 @@ writeRaster(mosaic.ndvi, filename = 'GiantArm_ndvi_monthly.grd', format="raster"
             overwrite=TRUE)
 writeRaster(mosaic.ndwi, filename = 'GiantArm_ndwi_monthly.grd', format="raster",
             overwrite=TRUE)
+writeRaster(mosaic.awei, filename = 'GiantArm_awei_monthly.grd', format="raster",
+            overwrite=TRUE)
+
 
 #if saving RasterBrick as geoTIFF
 # writeRaster(mosaic.rast, filename='GiantArm_ndvi_monthly.tif', format="GTiff", overwrite=TRUE,
@@ -603,6 +748,8 @@ writeRaster(mosaic.ndwi, filename = 'GiantArm_ndwi_monthly.grd', format="raster"
 writeRaster(ndvi.season, filename = 'GiantArm_ndvi_season.grd', format="raster",
             overwrite=TRUE)
 writeRaster(ndwi.season, filename = 'GiantArm_ndwi_season.grd', format="raster",
+            overwrite=TRUE)
+writeRaster(awei.season, filename = 'GiantArm_awei_season.grd', format="raster",
             overwrite=TRUE)
 
 #if saving RasterBrick as geoTIFF

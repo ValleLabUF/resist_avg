@@ -256,7 +256,7 @@ xmat<- dat_ssf3 %>%
 
 
 
-### Calculate Resistance Surface by ID ###
+### Calculate SSF Surface by ID ###
 
 ssfSurf<- vector("list", 4)
 names(ssfSurf)<- names(green_s)

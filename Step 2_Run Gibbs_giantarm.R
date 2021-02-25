@@ -80,13 +80,16 @@ model = function(){
   #priors
   b ~ dunif(0,1000)
   
-  for (k in 1:nparam){  #random effect on slopes
-    for (l in 1:n.id) {  
-      betas[l,k] ~ dnorm(mu_slope, tau2_slope)
+  for (k in 1:nparam){
+    for (l in 1:n.id) {  #random effect by ID on slopes
+      betas[l,k] ~ dnorm(mu_slope[k], tau2_slope[k])
     }
   }
-  mu_slope ~ dnorm(0,0.1)
-  tau2_slope ~ dgamma(0.1,0.1)
+  
+  for (k in 1:nparam){  #random effect on slopes
+    mu_slope[k] ~ dnorm(0,0.1)
+    tau2_slope[k] ~ dgamma(0.1,0.1)
+  }
   
   for (j in 2:n.id){  #random effect on intercept
     b0[j] ~ dnorm(0, tau2_int)
@@ -115,7 +118,7 @@ dat1<- list(nobs=nobs, dt=dt, n=n, xmat=xmat, nparam=ncol(xmat), id=id, n.id=n.i
 
 
 #set parameters to track
-params=c('betas','b','b0')
+params=c('betas','b','b0','mu_slope','tau2_slope')
 
 
 #MCMC settings 
@@ -149,19 +152,26 @@ res.summ<- res$BUGSoutput$summary
 
 
 ### Make (pretty) caterpillar plot
-betas<- data.frame(res.summ[2:22,c(1,3,7)])
+betas<- data.frame(res.summ[c(2:22,24:27),c(1,3,7)])
 betas$coeff<- c(rep('int', n.id),
                 rep('green', n.id),
-                rep('wet', n.id))
-betas$id<- rep(unique(path2$id), 3)
+                rep('wet', n.id),
+                "green", "wet",
+                "var_green", "var_wet")
+betas$id<- c(rep(unique(path2$id), 3), rep("pop", 4))
+betas$id<- factor(betas$id, levels = unique(betas$id))
 names(betas)[2:3]<- c("lower", "upper")
-betas$coeff<- factor(betas$coeff, levels = c("int","green","wet"))
+betas$coeff<- factor(betas$coeff, levels = c("int","green","wet","var_green","var_wet"))
 
 
-ggplot(data=betas, aes(x=coeff, y=mean, ymin=lower, ymax=upper, color = id)) +
+ggplot(data=betas[1:23,], aes(x=coeff, y=mean, ymin=lower, ymax=upper, color = id)) +
   geom_hline(yintercept = 0) +
   geom_errorbar(position = position_dodge(0.55), width = 0, size = 0.75) +
   geom_point(position = position_dodge(0.55), size=2) +
+  # geom_errorbar(data = betas[22:23,], aes(x=coeff, y=mean, ymin=lower, ymax=upper),
+  #               position = position_dodge(0.55), width = 0, size = 0.75, color = "black") +
+  # geom_point(data = betas[22:23,], aes(x=coeff, y=mean, ymin=lower, ymax=upper),
+  #            position = position_dodge(0.55), size=2, color = "black") +
   scale_x_discrete(labels = c("Intercept","Greenness", "Wetness")) +
   scale_color_fish_d("", option = "Scarus_tricolor") +
   theme_bw() +

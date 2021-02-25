@@ -1,6 +1,6 @@
 [general]
 creator=R package 'raster'
-created=2020-12-30 12:21:08
+created=2021-02-24 15:54:07
 [georeference]
 nrows=1275
 ncols=1041
@@ -12,14 +12,14 @@ projection=+proj=utm +zone=21 +south +datum=WGS84 +units=m +no_defs
 [data]
 datatype=FLT4S
 byteorder=little
-nbands=4
+nbands=2
 bandorder=BIL
-minvalue=-0.515151500701904:-0.32685328523318:-0.425509102642536:-0.885714292526245
-maxvalue=0.995061755180359:0.606889873743057:0.596115628878276:0.990476191043854
+minvalue=-0.303859651088715:-0.338356792926788
+maxvalue=0.670033991336823:0.592795312404633
 nodatavalue=-3.4e+38
 [legend]
 legendtype=
 values=
 color=
 [description]
-layername=Fall:Winter:Spring:Summer
+layername=Flood:Dry

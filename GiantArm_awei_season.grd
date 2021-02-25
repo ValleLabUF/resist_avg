@@ -1,0 +1,25 @@
+[general]
+creator=R package 'raster'
+created=2021-02-24 15:54:09
+[georeference]
+nrows=1275
+ncols=1041
+xmin=613620
+ymin=7853490
+xmax=644850
+ymax=7891740
+projection=+proj=utm +zone=21 +south +datum=WGS84 +units=m +no_defs
+[data]
+datatype=FLT4S
+byteorder=little
+nbands=2
+bandorder=BIL
+minvalue=-9751:-10244.3666992188
+maxvalue=450:552.40625
+nodatavalue=-3.4e+38
+[legend]
+legendtype=
+values=
+color=
+[description]
+layername=Flood:Dry
