@@ -13,7 +13,7 @@ library(raster)
 library(rasterVis)
 library(googledrive)
 
-ee_Initialize(email = "joshcullen10@gmail.com")
+ee_Initialize(email = "joshcullen10@gmail.com", drive =  T)
 
 
 
@@ -71,7 +71,7 @@ addNDVI<- function(image) {
 
 # This function gets NDWI from Landsat 8 imagery
 addNDWI<- function(image) {
-  return(image$addBands(image$normalizedDifference(c("B5", "B6"))$
+  return(image$addBands(image$normalizedDifference(c("B3", "B5"))$
                           rename('NDWI')))
 }
 
@@ -92,6 +92,25 @@ addAWEIsh<- function(image) {
   
 }
 
+
+# This function calculates EVI from Landsat 8 imagery
+addEVI<- function(image) {
+  
+  return(image$addBands(image$expression(
+    expression = '2.5 * ((NIR - RED) / (NIR + 6 * RED - 7.5 * BLUE + 1))',
+    opt_map =  list(
+      'NIR' = image$select('B5'),
+      'RED' = image$select('B4'),
+      'BLUE' = image$select('B2')
+    )
+  )$rename('EVI')$toFloat())  #needs to be float, not double
+  )
+  
+}
+
+
+
+
 # This functions masks clouds and cloud shadows (bits 3 and 5)
 maskL8sr<- function(image) {
   cloudShadowBitMask<- bitwShiftL(1, 3)
@@ -103,6 +122,13 @@ maskL8sr<- function(image) {
   return(image$updateMask(mask))
 }
 
+
+# This function masks clouds in Landsat 8 imagery.
+maskL8toa<- function(image) {
+  qa<- image$select('BQA')
+  mask<- qa$eq(2720)
+  return(image$updateMask(mask)$copyProperties(image))
+}
 
 
 # Retrieve Landsat 8-based NDVI
@@ -169,13 +195,51 @@ l8_ndwi<- l8$map(addNDWI)$
 ee_print(l8_ndwi)
 print(l8_ndwi$first()$getInfo())
 
-ndwiViz <- list(min = 0, max = 1, palette = c("00FFFF", "0000FF"))
+ndwiViz <- list(min = -0.5, max = 1, palette = c("00FFFF", "0000FF"))
 
 # Plot the map of the median NDWI for the region
 Map$setCenter(-55.76664, -19.19482, 11)
 Map$addLayer(l8_ndwi$median(),
              visParams = ndwiViz)
 
+
+
+
+# Map the EVI and cloud mask functions; select only the EVI band
+l8_toa<- ee$ImageCollection('LANDSAT/LC08/C01/T1_TOA')$
+  filterBounds(bounds)$
+  filterDate('2019-05-01', '2020-01-31')$
+  sort("system:time_start", TRUE)$  # Sort the collection in chronological order
+  map(function(x) x$reproject("EPSG:32721"))
+
+l8_evi<- l8_toa$map(addEVI)$
+  map(maskL8toa)$
+  select('EVI')
+
+
+
+ee_print(l8_evi)
+print(l8_evi$first()$getInfo())
+
+# Plot the map of the median EVI for the region
+Map$setCenter(-55.76664, -19.19482, 11)
+Map$addLayer(l8_evi$first(),
+             visParams = list(
+               min = -1.0,
+               max = 1.0,
+               bands = "EVI",
+               palette = c(
+                 'FFFFFF', 'CE7E45', 'DF923D', 'F1B555', 'FCD163', '99B718', '74A901',
+                 '66A000', '529400', '3E8601', '207401', '056201', '004C00', '023B01',
+                 '012E01', '011D01', '011301'
+               )
+             ))
+
+trueColor432 = l8_toa$select('B4', 'B3', 'B2');
+Map$addLayer(trueColor432$first(),
+             visParams = list(
+               min = 0.0,
+               max = 0.4))
 
 
 
@@ -259,6 +323,31 @@ cols<- colorRampPalette(c("#00FFFF", "#0000FF"))(length(breaks)-1)
 
 ##plot
 rasterVis::levelplot(ndwi.stack[[1:4]], at=breaks, col.regions=cols, main="NDWI")
+
+
+
+
+# Download all images locally
+setwd("~/Documents/Snail Kite Project/Data/R Scripts/ValleLabUF/resist_avg/EVI")
+
+evi<- ee_imagecollection_to_local(
+  ic = l8_evi,
+  scale = 30,
+  region = bounds,
+  via = 'drive'
+)
+
+
+evi.stack<- raster::stack(evi)
+
+breaks<- seq(0, 1, by=0.01)
+cols<- colorRampPalette(c('#FFFFFF', '#CE7E45', '#DF923D', '#F1B555', '#FCD163', '#99B718',
+                          '#74A901', '#66A000', '#529400', '#3E8601', '#207401', '#056201',
+                          '#004C00', '#023B01', '#012E01', '#011D01', '#011301'
+))(length(breaks)-1)
+
+##plot
+rasterVis::levelplot(evi.stack, at=breaks, col.regions=cols, main="EVI")
 
 
 
@@ -513,8 +602,8 @@ mosaic.ndwi.df$month<- factor(mosaic.ndwi.df$month, levels = month.abb[c(5:12,1)
 # mosaic.ndwi.df<- filter(mosaic.ndwi.df, ndwi > 0)  #only keep values from 0-1
 
 dat<- as.data.frame(dat)
-# dat$month<- month.abb[month(dat$date)]
-# dat$month<- factor(dat$month, levels = month.abb[c(5:12,1)])
+dat$month<- month.abb[month(dat$date)]
+dat$month<- factor(dat$month, levels = month.abb[c(5:12,1)])
 # dat$season<- ifelse(dat$month %in% c(month.abb[3:5]), "Fall",
 #                     ifelse(dat$month %in% c(month.abb[6:8]), "Winter",
 #                            ifelse(dat$month %in% c(month.abb[9:11]), "Spring", "Summer")))
@@ -547,10 +636,10 @@ ndwi.season.df<- pivot_longer(ndwi.season.df, cols = -c(x,y), names_to = "season
 
 ggplot() +
   geom_raster(data = ndwi.season.df, aes(x, y, fill = ndwi)) +
-  geom_point(data = dat, aes(x, y, color = id), size = 0.5, alpha = 0.75) + 
+  # geom_point(data = dat, aes(x, y, color = id), size = 0.5, alpha = 0.75) + 
   theme_bw() +
   scale_fill_gradientn(colors = cols, na.value = "transparent", limits = c(-1,1)) +
-  scale_color_brewer(palette = "Dark2") +
+  # scale_color_brewer(palette = "Dark2") +
   facet_wrap(~ season) +
   labs(x="Easting", y="Northing", title = "Pantanal NDWI") +
   coord_equal() +
@@ -713,6 +802,147 @@ ggplot() +
 
 
 
+
+
+#### EVI ####
+
+setwd("~/Documents/Snail Kite Project/Data/R Scripts/ValleLabUF/resist_avg/EVI")
+
+#load files as raster brick
+evi<- list.files(getwd(), pattern = "*.tif$")
+evi.stack<- stack(evi)
+evi.stack2<- flip(evi.stack, direction = 'y')
+names(evi.stack2)<- names(evi.stack)
+evi.brick<- evi.stack2
+
+#change values x == 0 to NA (these are masked pixels)
+raster::values(evi.brick)[raster::values(evi.brick) == 0] <- NA
+
+#rename images by date
+names(evi.brick)<- gsub(pattern = "LC08_22.07._", replacement = "", names(evi.brick))
+
+
+#visualize original rasters
+breaks<- seq(-1, 1, by=0.01)
+cols<- colorRampPalette(c('#FFFFFF', '#CE7E45', '#DF923D', '#F1B555', '#FCD163', '#99B718',
+                          '#74A901', '#66A000', '#529400', '#3E8601', '#207401', '#056201',
+                          '#004C00', '#023B01', '#012E01', '#011D01', '#011301'
+))(length(breaks)-1)
+rasterVis::levelplot(evi.brick[[1:6]], at=breaks, col.regions=cols, main="evi")
+
+
+
+#### Mosaic RasterBrick over space and time ####
+
+mosaic.evi<- list()
+tmp1<- gsub(pattern = "LC08_22.07._", replacement = "", names(evi.stack2))
+ind.m<- format(as.Date(tmp1, format = "%Y%m%d"), format = "%m") %>% 
+  as.numeric()
+ord.months<- c(5:12,1)
+
+
+for (i in 1:length(unique(ind.m))) {
+  ind<- which(ind.m %in% ord.months[i])  #using unique(ind.m) instead of ord.months results in wrong order
+  evi.sub<- evi.stack2[[ind]]
+  
+  # time1<- gsub(pattern = "LC08_22.07._", replacement = "", names(evi.stack))[i]
+  ind.pr<- stringr::str_sub(names(evi.stack2)[ind], 6, 11)
+  
+  if (length(unique(ind.pr)) > 1) {
+    tile.list<- vector("list", length = length(unique(ind.pr)))
+    
+    for (j in 1:length(unique(ind.pr))) {
+      ind.tiles<- grep(pattern = unique(ind.pr)[j], names(evi.stack2)[ind])
+      tile.list[[j]]<- mean(evi.sub[[ind.tiles]], na.rm=TRUE)
+    }
+    
+    tile.list$fun <- mean
+    tile.list$na.rm <- TRUE
+    
+    tile.mosaic<- do.call(raster::mosaic, tile.list)
+    
+  } else {
+    tile.mosaic<- mean(evi.sub, na.rm=TRUE)
+  }
+  
+  mosaic.evi[[i]]<- tile.mosaic
+}
+
+
+coordinates(dat) <- ~x+y
+
+
+mosaic.evi<- raster::brick(mosaic.evi)
+names(mosaic.evi)<- month.abb[c(5:12,1)]
+rasterVis::levelplot(mosaic.evi, at=breaks, col.regions=cols, main="EVI") +
+  layer(sp.points(dat, cex=0.1, pch = 16, col = alpha("red", 0.5)))
+
+
+
+### If wanting to aggregate into seasons:
+
+# Wet is May-July, January
+# Dry is August-December
+
+#convert from months to wet/dry seasons
+season.ind<- ifelse(names(mosaic.evi) %in% month.abb[1:7], "Flood", "Dry")
+evi.season<- stackApply(mosaic.evi, season.ind, fun = mean)
+names(evi.season)<- c("Flood","Dry")
+rasterVis::levelplot(evi.season, at=breaks, col.regions=cols, main="EVI") +
+  layer(sp.points(dat, cex=0.1, pch = 16, col = alpha("red", 0.5)))
+
+
+
+
+### Try plotting in ggplot2 so points can be plotted by month and season
+
+mosaic.evi.df<- as.data.frame(mosaic.evi, xy=TRUE)
+mosaic.evi.df<- pivot_longer(mosaic.evi.df, cols = -c(x,y), names_to = "month",
+                              values_to = "evi")
+mosaic.evi.df$month<- factor(mosaic.evi.df$month, levels = month.abb[c(5:12,1)])
+mosaic.evi.df<- filter(mosaic.evi.df, evi > 0)  #only keep values from 0-1
+
+dat<- as.data.frame(dat)
+dat$month<- month.abb[month(dat$date)]
+dat$month<- factor(dat$month, levels = month.abb[c(5:12,1)])
+dat$season<- ifelse(dat$month %in% month.abb[1:7], "Flood", "Dry")
+
+
+ggplot() +
+  geom_raster(data = mosaic.evi.df, aes(x, y, fill = evi)) +
+  geom_point(data = dat, aes(x, y, color = id), size = 0.5, alpha = 0.75) + 
+  theme_bw() +
+  scale_fill_gradientn(colors = cols, values = breaks, na.value = "transparent") +
+  scale_color_brewer(palette = "Dark2") +
+  coord_fixed() +
+  facet_wrap(~ month) +
+  theme(strip.text = element_text(size = 12, face = "bold"))
+
+
+
+
+evi.season.df<- as.data.frame(evi.season, xy=TRUE)
+evi.season.df<- pivot_longer(evi.season.df, cols = -c(x,y), names_to = "season",
+                              values_to = "evi")
+# evi.season.df$season<- factor(evi.season.df$season,
+#                                levels = c("Fall","Winter","Spring","Summer"))
+evi.season.df<- filter(evi.season.df, evi > 0)  #only keep values from 0-1
+
+
+
+ggplot() +
+  geom_raster(data = evi.season.df, aes(x, y, fill = evi)) +
+  geom_point(data = dat, aes(x, y, color = id), size = 0.5, alpha = 0.75) + 
+  theme_bw() +
+  scale_fill_gradientn(colors = cols, values = breaks, na.value = "transparent") +
+  scale_color_brewer(palette = "Dark2") +
+  coord_fixed() +
+  facet_wrap(~ season) +
+  theme(strip.text = element_text(size = 12, face = "bold"))
+
+
+
+
 ####################################################
 ### Write and save RasterBricks as geoTIFF files ###
 ####################################################
@@ -730,6 +960,8 @@ writeRaster(mosaic.ndvi, filename = 'GiantArm_ndvi_monthly.grd', format="raster"
 writeRaster(mosaic.ndwi, filename = 'GiantArm_ndwi_monthly.grd', format="raster",
             overwrite=TRUE)
 writeRaster(mosaic.awei, filename = 'GiantArm_awei_monthly.grd', format="raster",
+            overwrite=TRUE)
+writeRaster(mosaic.evi, filename = 'GiantArm_evi_monthly.grd', format="raster",
             overwrite=TRUE)
 
 
@@ -750,6 +982,8 @@ writeRaster(ndvi.season, filename = 'GiantArm_ndvi_season.grd', format="raster",
 writeRaster(ndwi.season, filename = 'GiantArm_ndwi_season.grd', format="raster",
             overwrite=TRUE)
 writeRaster(awei.season, filename = 'GiantArm_awei_season.grd', format="raster",
+            overwrite=TRUE)
+writeRaster(evi.season, filename = 'GiantArm_evi_season.grd', format="raster",
             overwrite=TRUE)
 
 #if saving RasterBrick as geoTIFF

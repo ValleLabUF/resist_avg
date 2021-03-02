@@ -1,0 +1,25 @@
+[general]
+creator=R package 'raster'
+created=2021-03-02 15:05:23
+[georeference]
+nrows=1275
+ncols=1041
+xmin=613620
+ymin=7853490
+xmax=644850
+ymax=7891740
+projection=+proj=utm +zone=21 +south +datum=WGS84 +units=m +no_defs
+[data]
+datatype=FLT4S
+byteorder=little
+nbands=9
+bandorder=BIL
+minvalue=-2.4979350566864:-0.388481259346008:-0.102127745747566:-0.0834813117980957:-8.72975635528564:-5.79993963241577:-0.0755020380020142:-0.13631671667099:-0.163746014237404
+maxvalue=1.79738688468933:1.0097097158432:0.962104201316833:0.916065514087677:5.42363023757935:6.81857252120972:1.1299684047699:1.11298298835754:1.17102670669556
+nodatavalue=-3.4e+38
+[legend]
+legendtype=
+values=
+color=
+[description]
+layername=May:Jun:Jul:Aug:Sep:Oct:Nov:Dec:Jan
