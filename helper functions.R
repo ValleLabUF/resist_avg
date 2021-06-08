@@ -1,39 +1,7 @@
-df.to.list = function(dat, ind) {  #ind must be in quotes
-  id<- unique(dat[,ind]) %>% dplyr::pull()
-  n=length(id)
-  dat.list<- vector("list", n)
-  names(dat.list)<- id
-  
-  for (i in 1:length(id)) {
-    tmp<- which(dat[,ind] == id[i])
-    dat.list[[i]]<- dat[tmp,]
-  }
-  dat.list
-}
-#----------------------------
 
-# match_time = function(path_df, track_df, id) {  #matches covariate time series with track observations
-#   path.list<- df.to.list(dat = path_df, ind = id)
-#   track.list<- df.to.list(dat = track_df, ind = id)
-#   
-#   for (j in 1:length(path.list)) {
-#     ind<- vector()
-#     
-#     for (i in 2:(nrow(path.list[[j]]) - 1)) {
-#       if (path.list[[j]]$cell[i] == path.list[[j]]$cell[i+1])
-#         ind<- c(ind, i)
-#     }
-#     ind<- c(1, ind, nrow(path.list[[j]]))
-#     track.list[[j]]$time1<- ind
-#   }
-#   
-#   track_df1<- bind_rows(track.list, .id="id")
-#   track_df1
-# }
-
-#----------------------------
-extract.covars.internal = function(dat, layers, state.col, which_cat, dyn_names, ind) {
-  ## dat = data frame containing at least the id, coordinates (x,y), and date-time (date)
+extract.covars.internal = function(dat, layers, state.col, which_cat, dyn_names, ind, p) {
+  ## dat = data frame containing at least the id, coordinates (x,y), date-time (date), and
+  ##      step length (step)
   ## layers = a raster object (Raster, RasterStack, RasterBrick) object containing environ covars
   ## state.col = character. The name of the column that contains behavioral states w/in
   ##             dat (if present)
@@ -41,9 +9,7 @@ extract.covars.internal = function(dat, layers, state.col, which_cat, dyn_names,
   ## dyn_names = vector of names dynamic raster layers (in same order as layers); NULL by default
   ## ind = character/integer. The name or column position of the indicator column of dat to be
   ##       matched w/ names of a dynamic raster
-  ##
-  ## Current function can only account for single dynamic variable; future versions could   
-  ## potentially include multiple variables within a list as a separate argument.
+  ## p = a stored 'progressr' object for creating progress bar
   
   
     #Subset and prep data
@@ -82,7 +48,7 @@ extract.covars.internal = function(dat, layers, state.col, which_cat, dyn_names,
       #subset to only include time-matched vars (by some indicator variable)
       cond<- tmp[j-1, ind]
       cond2<- levels(cond)[which(cond != levels(cond))]
-      tmp1<- tmp1[,!stringr::str_detect(names(tmp1), paste(cond2, collapse="|"))]
+      tmp1<- tmp1[,!stringr::str_detect(names(tmp1), paste(cond2, collapse="|")), drop=F]
       
       ind1<- stringr::str_which(names(tmp1), as.character(cond))
       names(tmp1)[ind1]<- dyn_names
@@ -100,7 +66,7 @@ extract.covars.internal = function(dat, layers, state.col, which_cat, dyn_names,
       }
       
       
-      tmp2<- cbind(n = nrow(tmp1), covar.means) %>% 
+      tmp2<- cbind(n = nrow(tmp1), dist = tmp$step[j-1], covar.means) %>% 
         dplyr::mutate(dt = as.numeric(tmp$dt[j-1]), id = unique(dat$id), date = tmp$date[j-1],
                state = ifelse(!is.null(state.col), tmp[j-1,state.col], NA)) #%>% 
         # dplyr::select(-cell)
@@ -109,6 +75,7 @@ extract.covars.internal = function(dat, layers, state.col, which_cat, dyn_names,
       extr.covar<- rbind(extr.covar, tmp2)
     }
     
+    p()  #plot progress bar
     extr.covar
 }
 
@@ -119,14 +86,19 @@ extract.covars = function(data, layers, state.col = NULL, which_cat = NULL, dyn_
   
   dat.list<- bayesmove::df_to_list(data, "id")
   
-  tictoc::tic()
-  path<- furrr::future_map(dat.list,
-                           ~extract.covars.internal(dat = .x, layers = layers,
-                                                    state.col = state.col,
-                                                    which_cat = which_cat,
-                                                    dyn_names = dyn_names, ind = ind),
-                           .progress = TRUE, .options = furrr_options(seed = TRUE))
-  tictoc::toc()
+  progressr::with_progress({
+    #set up progress bar
+    p<- progressr::progressor(steps = length(dat.list))
+    
+    tictoc::tic()
+    path<- furrr::future_map(dat.list,
+                             ~extract.covars.internal(dat = .x, layers = layers,
+                                                      state.col = state.col,
+                                                      which_cat = which_cat,
+                                                      dyn_names = dyn_names, ind = ind, p = p),
+                             .options = furrr_options(seed = TRUE))
+    tictoc::toc()
+  })
   
   
   
